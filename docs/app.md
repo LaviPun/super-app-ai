@@ -11,7 +11,7 @@ SuperApp replaces multiple single-purpose apps with one app where you can **gene
 ## How it works
 1. Install SuperApp.
 2. Describe what you want in plain English **or** pick a pre-built template.
-3. SuperApp generates a *Draft module*.
+3. SuperApp generates **1–3 draft concepts** (pick the count next to Generate; default 3). Each concept card has its own **Preview** so you can compare renders before choosing one — the chosen concept becomes your *Draft module*.
 4. You Preview it on a theme you choose.
 5. If you like it, Publish. You can rollback any time.
 

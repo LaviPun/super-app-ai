@@ -28,6 +28,7 @@ For merged-change history grouped by launch-program workstream, see [`../CHANGEL
 | Doc                                                      | Use it for                                                            |
 | -------------------------------------------------------- | --------------------------------------------------------------------- |
 | [`implementation-status.md`](./implementation-status.md) | Shipped work, stabilization notes, and recent implementation history. |
+| [`playbooks/`](./playbooks/full-program-audit.md)        | Repeatable process playbooks — currently the full program audit → waves → verify process (PR #35). |
 
 Roadmap/phase-plan content was archived in Task 1 — see [`archive/phase-plan.md`](./archive/phase-plan.md) for the historical version; it is no longer maintained.
 

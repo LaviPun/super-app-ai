@@ -101,7 +101,7 @@ If you add new functionality requiring additional scopes, update **both** `shopi
 
 Theme modules deploy via **app extension + Shopify metaobjects** only (no direct theme file writes). When you publish a `theme.section` module (any kind — banner, popup, notification-bar, contactForm, effect, floatingWidget, or custom), the app upserts a **`superapp_module` metaobject** per module (one entry per active module) and removes the metaobject when the module is unpublished or deleted. The **SuperApp Theme Modules** app embed (in `extensions/theme-app-extension`) lists active `superapp_module` metaobjects via Liquid and renders them on the storefront. Merchants must add the "SuperApp Theme Modules" app embed in the theme editor (Theme → Customize → App embeds) for published theme modules to appear.
 
-A one-time backfill route at `/internal/metaobject-backfill` migrates legacy `superapp.theme.modules` metafield blobs into the new metaobject layout for stores that were on the previous architecture.
+A one-time backfill route at `/internal/metaobject-backfill` migrates legacy `superapp_theme/modules` metafield blobs into the new metaobject layout for stores that were on the previous architecture.
 
 **Planned:** The theme app extension will also support **slot blocks** (Universal Slot, Product Slot, Cart Slot); merchants add these blocks in the Theme Editor; **slot→module assignment is done in the app UI** (dropdown of modules → slot), not in the Theme Editor, because the Theme Editor cannot show dynamic module lists. An App Embed runtime loader for global behaviors may be added when in scope.
 

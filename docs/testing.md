@@ -76,7 +76,7 @@ Jobs, in dependency order:
 |-----|-------|------------|
 | `quality` | Lint (web), typecheck (web, core, rate-limit, platform-contracts, job-orchestration, workers, api), `prisma validate` | — |
 | `test` | `pnpm test:packages` against a real Postgres 16 + Redis 7 service container | `quality` |
-| `test-functions` | `pnpm test:functions` — Rust/wasm function-extension suites, via `shopify app function build` (Shopify CLI 4.7.0, Node 22 for this job only) | `quality` |
+| `test-functions` | `pnpm test:functions` — Rust/wasm function-extension suites, via `shopify app function build` (Shopify CLI 4.7.0, Node 22 for this job only). A pre-warm step (PR #48) runs one `shopify app function info` (3 attempts) before the parallel suites, forcing the CLI's lazy function-runner binary download exactly once — the parallel suites previously raced it cross-process and flaked with `spawn .../function-runner ENOENT` (see `docs/debug.md` §27) | `quality` |
 | `liquid-budget` | `node scripts/build-theme-liquid.mjs --check` — see below | — |
 | `evals` | `pnpm evals --strict` (stub client, no API key) — see [§4](#4-eval-harness) | `quality` |
 | `e2e-internal` | Boots the Remix dev server against a real Postgres, runs the internal-AI smoke script then `pnpm test:e2e` (Playwright) | `test` |
@@ -91,7 +91,7 @@ Jobs, in dependency order:
 
 **File:** `apps/web/scripts/run-evals.ts`, backed by `apps/web/app/services/ai/evals.server.ts`.
 
-Two modes, selected by whether `EVAL_PROVIDER_ID` is set:
+Three modes, selected by `EVAL_PROVIDER_ID` (validity fixes: PR #42):
 
 ```bash
 # Deterministic (CI default): StubLlmClient, no network, no API key
@@ -102,11 +102,18 @@ pnpm --filter web evals --strict
 # equivalently:
 pnpm --filter web evals:strict
 
-# Live provider run against real model output (needs a configured provider)
-EVAL_PROVIDER_ID=<provider-id> pnpm --filter web evals
+# Live run pinned to a DB provider — id OR name; FAILS FAST if the row
+# doesn't exist in the eval DB (no silent fall-through to the env client)
+EVAL_PROVIDER_ID=<AiProvider id or name> pnpm --filter web evals
+
+# Live run against the env-key client, selected explicitly
+EVAL_PROVIDER_ID=env pnpm --filter web evals
+
 # or, for the live-eval Vitest suite specifically:
 RUN_LIVE_EVALS=1 pnpm --filter web exec vitest run app/__tests__/evals.live.test.ts
 ```
+
+**Eval-run isolation (PR #42).** An eval run must score exactly the model it names, so live modes resolve the client with `{ disableFallback: true, ignoreEnvSkills: true }`: no cross-provider fallback leg can silently serve (previously the env path wrapped Claude in `FallbackLlmClient(OpenAI)`, so a "claude-*" run could score `gpt-*` output), and `ANTHROPIC_SKILLS` env never leaks Skills/code-execution/beta headers into eval request shapes. The runner logs both isolations, prints an honest provider line per mode (e.g. `env (ANTHROPIC_DEFAULT_MODEL=<model>)` — it used to log "stub" misleadingly), and a deduped **Distinct errors** section prints the first 400 chars of each distinct error once (the compact per-prompt line previously truncated at 80 chars, hiding actionable errors). Production `getLlmClient()` defaults are unchanged — asserted by `apps/web/app/__tests__/eval-harness-validity.test.ts`.
 
 **Thresholds.** `run-evals.ts` computes a default pass threshold of `0.9` (or `0.99` in `--strict` mode) for schema-valid rate, compiler-success rate, allowed-values-compliance rate, and forbidden-surface-rejection rate; non-destructive rate is always `1.0` (hard requirement, not overridable by the default/strict split). Every threshold can be overridden individually via env: `EVAL_THRESHOLD_SCHEMA`, `EVAL_THRESHOLD_COMPILER`, `EVAL_THRESHOLD_ND`, `EVAL_THRESHOLD_ALLOWED_VALUES`, `EVAL_THRESHOLD_FORBIDDEN_SURFACE`. `ci.yml`'s `evals` job runs `pnpm evals --strict` with `EVAL_THRESHOLD_SCHEMA`/`EVAL_THRESHOLD_COMPILER` explicitly set to `0.99` and `EVAL_THRESHOLD_ND` to `1.0`.
 

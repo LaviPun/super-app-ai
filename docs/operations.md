@@ -7,9 +7,11 @@ procedures (those live in `docs/runbooks/*.md`), the SLO math (`docs/slos.md`),
 or an environment-variable matrix (that's `apps/web/.env.example` and
 `apps/web/app/env.server.ts` directly — a hand-copied matrix here would drift
 the same way `docs/archive/deployment/env-matrix.md` did, which is why that
-file is archived rather than fixed). **Last verified: 2026-08-27**, against
-`master@8a656af` (post wave-two merge: WS-C async engine #19, WS-F merchant UI
-#18, WS-G ops/integrations #17, WS-H templates #16, plus #20/#22/#23/#24).
+file is archived rather than fixed). **Last verified: 2026-09-02**, against
+`master@0e81e8e` (post DevOps-hardening chain: #46 CI-gated deploys/deep
+health/alerting/spend guardrail/runbooks, #47 workflow-file repairs, #48
+function-runner pre-warm; earlier wave-two context: WS-C async engine #19,
+WS-F merchant UI #18, WS-G ops/integrations #17, WS-H templates #16).
 
 ---
 
@@ -75,18 +77,26 @@ regression.
 comment, only an image-build gate: it docker-builds `apps/web/Dockerfile` on
 every `master` push to prove the image builds cleanly on a neutral runner. The
 actual deploy is Railway-native — GitHub auto-deploy per service, gated by
-Railway's "Wait for CI" setting. **Correction (2026-09-02 DevOps audit): that
-gate was NOT actually enabled** — a live `railway status --json` read showed
-`checkSuites: null` on both production services, so a red master could deploy.
-Enabling it is a 2-minute owner step; the exact CLI command and dashboard path
-are in [`runbooks/deploy-and-rollback.md`](./runbooks/deploy-and-rollback.md).
+Railway's "Wait for CI" setting. The 2026-09-02 DevOps audit found that gate
+was NOT actually enabled (`checkSuites: null` on both production services —
+a red master could deploy); the owner ran the enable step the same day, and
+`railway status` now reports `checkSuites` enabled on both `web` and
+`worker`. The CLI command, verification, and the gate's one caveat — a
+CI-failed master push leaves that Railway deployment **SKIPPED**, and a later
+green re-run of CI does *not* revive it (push a new commit or redeploy
+manually) — are in
+[`runbooks/deploy-and-rollback.md`](./runbooks/deploy-and-rollback.md).
 
 **Post-deploy verification (`.github/workflows/post-deploy-smoke.yml`,
 2026-09)** fires after CI completes for a master push: polls `/healthz` until
 the new commit sha serves (healthz echoes `RAILWAY_GIT_COMMIT_SHA` as
 `release`), then checks `/healthz`, `/healthz/deep` and `/internal/login`,
-filing a GitHub issue on regression. Inert until the `PROD_BASE_URL` repo
-variable is set.
+filing a GitHub issue on regression. Live since 2026-09-02, when the
+`PROD_BASE_URL` repo variable was set (before that the workflow self-skipped).
+The three workflows PR #46 added initially failed at GitHub's parse level
+(column-0 lines inside `run: |` block scalars — see `docs/debug.md` §26) and
+were repaired in #47; `ci.yml`'s wasm job also gained a function-runner
+pre-warm step in #48 to kill a parallel-download flake (`docs/debug.md` §27).
 
 **Backups**: nightly `pg_dump` (`db-backup.yml`, 04:00 UTC, 30-day artifact
 retention; requires the `DATABASE_BACKUP_URL` repo secret) + weekly restore

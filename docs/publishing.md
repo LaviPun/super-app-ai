@@ -36,15 +36,15 @@ duplicate — it's the same handle every time.
 
 | Surface (compiler payload) | Metaobject type | Handle | Refs-list namespace/key |
 |---|---|---|---|
-| `themeModulePayload` | `$app:superapp_module` | `superapp-module-<moduleId>` | `superapp.theme` / `module_refs` |
-| `adminBlockPayload` | `$app:superapp_admin_block` | `superapp-block-<moduleId>` | `superapp.admin` / `block_refs` |
-| `adminActionPayload` | `$app:superapp_admin_action` | `superapp-action-<moduleId>` | `superapp.admin` / `action_refs` |
-| `adminDiscountUiPayload` | `$app:superapp_admin_discount_ui` | `superapp-discount-ui-<moduleId>` | `superapp.admin` / `discount_ui_refs` |
-| `adminLinkPayload` | `$app:superapp_admin_link` | `superapp-link-<moduleId>` | `superapp.admin` / `link_refs` |
-| `adminPrintPayload` | `$app:superapp_admin_print` | `superapp-print-<moduleId>` | `superapp.admin` / `print_refs` |
-| `adminSegmentTemplatePayload` | `$app:superapp_admin_segment_template` | `superapp-segment-template-<moduleId>` | `superapp.admin` / `segment_template_refs` |
-| `checkoutUpsellPayload` | `$app:superapp_checkout_upsell` | `superapp-checkout-upsell-<moduleId>` | `superapp.checkout` / `upsell_refs` |
-| `customerAccountBlockPayload` | `$app:superapp_customer_account_block` | `superapp-ca-block-<moduleId>` | `superapp.customer_account` / `block_refs` |
+| `themeModulePayload` | `$app:superapp_module` | `superapp-module-<moduleId>` | `superapp_theme` / `module_refs` |
+| `adminBlockPayload` | `$app:superapp_admin_block` | `superapp-block-<moduleId>` | `superapp_admin` / `block_refs` |
+| `adminActionPayload` | `$app:superapp_admin_action` | `superapp-action-<moduleId>` | `superapp_admin` / `action_refs` |
+| `adminDiscountUiPayload` | `$app:superapp_admin_discount_ui` | `superapp-discount-ui-<moduleId>` | `superapp_admin` / `discount_ui_refs` |
+| `adminLinkPayload` | `$app:superapp_admin_link` | `superapp-link-<moduleId>` | `superapp_admin` / `link_refs` |
+| `adminPrintPayload` | `$app:superapp_admin_print` | `superapp-print-<moduleId>` | `superapp_admin` / `print_refs` |
+| `adminSegmentTemplatePayload` | `$app:superapp_admin_segment_template` | `superapp-segment-template-<moduleId>` | `superapp_admin` / `segment_template_refs` |
+| `checkoutUpsellPayload` | `$app:superapp_checkout_upsell` | `superapp-checkout-upsell-<moduleId>` | `superapp_checkout` / `upsell_refs` |
+| `customerAccountBlockPayload` | `$app:superapp_customer_account_block` | `superapp-ca-block-<moduleId>` | `superapp_customer_account` / `block_refs` |
 | `proxyWidgetPayload` | `$app:superapp_proxy_widget` | `superapp-proxy-<widgetId>` | none — looked up by handle at runtime |
 
 These namespace/key constants are exported from `publish.service.ts`
@@ -52,10 +52,22 @@ These namespace/key constants are exported from `publish.service.ts`
 `unpublish.service.ts` — publish and unpublish share the SAME constants so
 teardown can never drift from what publish wrote (see §3).
 
+**Namespace history (2026-08-28).** All of these namespaces were dotted
+(`superapp.theme` etc.) until PR #45 — Shopify rejects dots in metafield
+namespaces, so every dotted write had always failed (no data migration was
+needed; see `docs/debug.md` §24). Relatedly, PR #34 fixed
+`ensureMetafieldDefinition` to omit the `access.admin` field entirely: on
+non-`$app` (merchant-owned) namespaces Shopify fixes admin access at the
+implicit `PUBLIC_READ_WRITE` and rejects any explicit `access.admin` value, so
+the definition candidates are now `{ storefront: PUBLIC_READ }` first, then no
+access override at all. A guard test
+(`apps/web/app/__tests__/metafield-namespace-charset.test.ts`) sweeps for any
+new dotted `superapp.*` namespace literal.
+
 Function modules (`functions.*`) go through a separate path: the compiler emits
 a `FUNCTION_CONFIG_UPSERT` op carrying the function's config, which
 `PublishService` writes to a `$app:superapp_function_config` metaobject
-(handle `superapp-fn-<functionKey>`, namespace `superapp.functions`, ref key
+(handle `superapp-fn-<functionKey>`, namespace `superapp_functions`, ref key
 `fn_<functionKey>`) via `writeFunctionConfig`. **The config metaobject alone
 deploys nothing** — see §2.
 

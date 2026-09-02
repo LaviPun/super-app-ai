@@ -35,7 +35,7 @@ Related docs: `docs/generation.md` (RecipeSpec/compiler output contract, `flow.a
 
 A merchant authors a flow as `{ trigger, steps[] }` (`RecipeSpec` type
 `flow.automation`) in the visual builder (`flows.build.$flowId.tsx`). Publishing
-it writes the definition verbatim to a `superapp.flow` shop metafield
+it writes the definition verbatim to a `superapp_flow` shop metafield
 (`compileFlowAutomation`, `flow.automation.ts:43-60`) — a real, inspectable
 deploy artifact, though the runner doesn't actually need the metafield to
 execute; it reads the module's active-version `specJson` directly.

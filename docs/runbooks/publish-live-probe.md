@@ -121,7 +121,7 @@ Expected sequence:
    storefront no longer renders it.
 6. In GraphiQL: `metaobjectByHandle(handle: { type: "$app:superapp_module", handle: "superapp-module-<id>" })`
    returns `null`.
-7. The `superapp.theme` / `module_refs` shop metafield no longer contains that
+7. The `superapp_theme` / `module_refs` shop metafield no longer contains that
    module's GID.
 
 **Record:** observed `embed=` param value, whether the deep link landed on the

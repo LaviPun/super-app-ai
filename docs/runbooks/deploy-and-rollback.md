@@ -3,16 +3,19 @@
 Operator procedure for shipping, verifying, and reverting a production deploy.
 Command-first. Topology and deploy-flow background: `docs/operations.md` §1–2.
 
-**STATUS (2026-09-02):** deploys are Railway-native GitHub auto-deploys from
-`master`. **"Wait for CI" is NOT yet enabled** — verified live via
-`railway status --json`: `checkSuites: null` on both `web` and `worker` in the
-`production` environment, meaning a red master push still deploys. Enabling it
-is Owner Step 1 below (2 minutes). `docs/operations.md` §2 previously claimed
-this gate was already on; it was not.
+**STATUS (2026-09-02, post-ship sync):** deploys are Railway-native GitHub
+auto-deploys from `master`, and **"Wait for CI" is now ENABLED** — the owner
+ran Owner Step 1 below on 2026-09-02; `railway status --json` reports
+`checkSuites` enabled on both `web` and `worker` in `production`. The
+`PROD_BASE_URL` repo variable is also set, so the post-deploy smoke workflow
+is live. (History: the 2026-09-02 DevOps audit had found `checkSuites: null`
+on both services — a red master could deploy — after `docs/operations.md` §2
+claimed the gate was already on. Owner Step 1 is kept below as the reference
+procedure.)
 
 ---
 
-## Owner Step 1 — enable "Wait for CI" (one-time, 2 minutes)
+## Owner Step 1 — enable "Wait for CI" (one-time, 2 minutes) — DONE 2026-09-02
 
 Railway's config-as-code files (`apps/web/railway.*.toml`) only carry
 `[build]`/`[deploy]` keys — `checkSuites` lives in the environment config, so
@@ -47,9 +50,9 @@ functions, liquid budget, theme-check, e2e, evals, build).
    `RAILWAY_GIT_COMMIT_SHA` as `release`), then checks `/healthz`,
    `/healthz/deep` (queue/DLQ/cron/spend signals) and `/internal/login`.
    Failure files a GitHub issue labeled `ops-smoke-failure`.
-   - Inert until the `PROD_BASE_URL` repository **variable** is set (Owner
-     Step 2): repo → Settings → Secrets and variables → Actions → Variables →
-     `PROD_BASE_URL` = the production web URL.
+   - Requires the `PROD_BASE_URL` repository **variable** (set 2026-09-02;
+     self-skips when absent): repo → Settings → Secrets and variables →
+     Actions → Variables → `PROD_BASE_URL` = the production web URL.
 
 ## Deploy failed (build or healthcheck)
 
@@ -64,6 +67,16 @@ functions, liquid budget, theme-check, e2e, evals, build).
    var by name — never its value).
 4. If a bad build DID cut over, roll back (below).
 ```
+
+## Deploy skipped by the CI gate
+
+When CI fails on a master push, Railway (Wait-for-CI) marks that deployment
+**SKIPPED** — and does NOT retry it when the CI run is later re-run green. The
+post-deploy smoke workflow then fires on the green re-run and fails with
+"new release never served", filing an `ops-smoke-failure` issue (this
+happened: issue #49 for `413d376`). Remedy: push a new commit to master
+(normal case — the next merge carries it), or trigger a manual redeploy in
+the Railway dashboard (`web` + `worker`).
 
 ## Rollback
 
