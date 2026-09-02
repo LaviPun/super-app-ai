@@ -211,6 +211,29 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # `shopify app function info` lazily downloads the function-runner
+      # binary into the CLI's bin dir on first use, and the CLI dedupes that
+      # download only within a single process. pnpm test:functions runs the
+      # six suites in parallel; each one shells out to `function info`
+      # concurrently, so cross-process races can leave a suite spawning a
+      # missing/partial binary: "Failed to start function-runner: spawn
+      # .../bin/function-runner-9.2.2 ENOENT" (runs 33617071061 and
+      # 33620729112). Download it exactly once, before the parallel tests.
+      - name: Pre-warm function-runner binary
+        working-directory: extensions
+        run: |
+          for attempt in 1 2 3; do
+            if shopify app function info --json --path superapp-discount > /dev/null; then
+              exit 0
+            fi
+            echo "pre-warm attempt ${attempt} failed; retrying..." >&2
+            sleep 5
+          done
+          echo "function-runner pre-warm failed after 3 attempts" >&2
+          exit 1
+        env:
+          SHOPIFY_CLI_NO_ANALYTICS: '1'
+
       - name: Test (function extensions)
         run: pnpm test:functions
         env:
