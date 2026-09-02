@@ -8,6 +8,22 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/); entries 
 
 WS-I (cleanup) is in flight but not yet merged to `master` as of this update (2026-08-27) — see the launch program doc for status.
 
+## [2026-09-02] — DevOps hardening: CI-gated deploys, deep health, alerting, spend guardrail, runbooks
+
+Branch `feat/devops-hardening`.
+
+### Fixed
+- **Nightly DB backup had been failing silently since the Postgres 18 cutover** — the runner's default `postgresql-client` (v16) aborts on `server version mismatch` against the Railway `postgres-ssl:18` server. `db-backup.yml` now installs `postgresql-client-18` from PGDG, enforces a 10KB minimum dump size, and files a deduped GitHub issue (`ops-backup-failure`) on any failure instead of a silent red run
+
+### Added
+- `/healthz/deep` (`routes/healthz_.deep.tsx`, CRON_SECRET header or internal-admin session): db/redis probes + threshold-classified ops signals — queue backlog, stuck RUNNING, DLQ depth (24h), error-rate spike, cron heartbeat staleness, AI daily spend — each ok/warn/fail/skipped; 503 only on fail
+- Ops health sweep in `/api/cron` (`services/observability/ops-health.server.ts`): writes `AppSettings.cronLastTickAt` heartbeat, persists `opsHealthSnapshot`, fires `OPS_HEALTH_DEGRADED` / `AI_SPEND_CAP_EXCEEDED` through the existing WS-G `OpsAlertService` seam (Sentry/Slack/email light up the moment keys exist); internal admin shell renders a warn/critical ops banner from the snapshot even with no keys
+- AI spend guardrail (`services/observability/ai-spend-guard.server.ts`): today's `AiUsage.costCents` vs a daily soft cap (`AppSettings.aiDailySpendCapCents` → `AI_DAILY_SPEND_CAP_CENTS` → $20 default); observability only — never blocks a request
+- Post-deploy smoke (`.github/workflows/post-deploy-smoke.yml`): after CI passes on master, polls `/healthz` until the new commit sha serves (healthz now echoes `RAILWAY_GIT_COMMIT_SHA` as `release`), then checks `/healthz`, `/healthz/deep`, `/internal/login`; files a deduped issue on regression; inert until the `PROD_BASE_URL` repo variable is set
+- Weekly backup restore verification (`.github/workflows/db-restore-verify.yml`): restores the newest nightly artifact into a scratch Postgres 18 and sanity-counts schema/rows; plus a local owner-run equivalent `scripts/verify-backup-restore.mjs`
+- Runbooks: `deploy-and-rollback.md` (incl. the exact Wait-for-CI owner step — live audit found `checkSuites: null` on both production services, so a red master could deploy), `restore-from-backup.md`, `db-down.md`, `redis-down.md`, `secrets-rotation.md` (incl. the dead revoked `ANTHROPIC_API_KEY` cleanup owner action); runbook index + `docs/operations.md` updated to match reality
+- Additive migration `20260902090000_devops_ops_health_spend_guard`: `AppSettings.cronLastTickAt`, `opsHealthSnapshot`, `aiDailySpendCapCents`
+
 ## [2026-08-27] — WS-C: Async generation engine
 
 BullMQ worker, deadline budgets, funnel spine, hardened errors. Commit `6b4f25e` (PR #19).

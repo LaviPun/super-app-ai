@@ -10,13 +10,25 @@ name: db-backup
 # from GitHub's runners — e.g. the Railway TCP-proxy URL, ideally a read-only
 # role). Until that secret is set, the job no-ops with a clear notice instead
 # of failing the schedule.
+#
+# DevOps hardening 2026-09:
+#   - postgresql-client-18 from the PGDG apt repo, NOT ubuntu's default v16
+#     client. Railway runs postgres-ssl:18; pg_dump refuses to dump a server
+#     newer than itself ("aborting because of server version mismatch") — this
+#     exact mismatch silently failed EVERY nightly backup from the Postgres 18
+#     cutover until 2026-09-02 (see docs/runbooks/restore-from-backup.md).
+#   - a failed backup now FILES A GITHUB ISSUE (label: ops-backup-failure)
+#     instead of failing silently into the Actions tab nobody watches. D8.
+#   - restores are verified weekly by db-restore-verify.yml — an untested
+#     backup is not a backup.
 
 on:
   schedule:
     - cron: "0 4 * * *" # 04:00 UTC nightly
   workflow_dispatch: {}
 
-permissions: {}
+permissions:
+  issues: write
 
 jobs:
   backup:
@@ -39,14 +51,22 @@ jobs:
             "This is the free Hobby-plan pg_dump backup stopgap (WS-A Task 12)." \
             "Set it to a Postgres connection string reachable from GitHub Actions" \
             "runners (e.g. the Railway Postgres TCP-proxy URL) to enable nightly backups." \
-            "See docs/runbooks/postgres-migration.md."
+            "See docs/runbooks/restore-from-backup.md."
 
-      - name: Install postgresql-client
+      - name: Install postgresql-client 18 (PGDG — server is Postgres 18)
         if: steps.check.outputs.configured == 'true'
         run: |
           set -euo pipefail
           sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends postgresql-client
+          sudo apt-get install -y --no-install-recommends curl ca-certificates
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends postgresql-client-18
+          pg_dump --version
 
       - name: Dump + gzip
         if: steps.check.outputs.configured == 'true'
@@ -58,6 +78,15 @@ jobs:
           echo "DUMP_STAMP=${STAMP}" >> "$GITHUB_ENV"
           pg_dump --no-owner --no-privileges --format=plain --dbname="$DATABASE_BACKUP_URL" \
             | gzip -9 > "superapp-postgres-${STAMP}.sql.gz"
+          # A dump that "succeeded" but is tiny is a failed dump wearing a green
+          # check (e.g. auth ok but wrong database). 10KB floor is far below any
+          # real dump of this schema and far above an empty/error output.
+          SIZE=$(stat -c%s "superapp-postgres-${STAMP}.sql.gz")
+          echo "Backup size: ${SIZE} bytes"
+          if [ "$SIZE" -lt 10240 ]; then
+            echo "::error::Backup file is suspiciously small (${SIZE} bytes < 10240) — treating as failure."
+            exit 1
+          fi
 
       - name: Upload backup artifact
         if: steps.check.outputs.configured == 'true'
@@ -67,3 +96,23 @@ jobs:
           path: superapp-postgres-${{ env.DUMP_STAMP }}.sql.gz
           retention-days: 30
           if-no-files-found: error
+
+      - name: File an issue on failure (loud, deduped)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --label ops-backup-failure --state open --json number --jq 'length')
+          if [ "$EXISTING" -gt 0 ]; then
+            echo "An open ops-backup-failure issue already exists — not filing a duplicate."
+            exit 0
+          fi
+          gh label create ops-backup-failure --repo "$GITHUB_REPOSITORY" --color B60205 \
+            --description "Nightly DB backup failed" 2>/dev/null || true
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Nightly DB backup FAILED ($(date -u +%Y-%m-%d))" \
+            --label ops-backup-failure \
+            --body "The db-backup workflow failed: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
+Until this is fixed there is NO fresh restorable backup. Runbook: docs/runbooks/restore-from-backup.md (includes the known pg_dump-vs-server version-mismatch failure mode)."

@@ -10,7 +10,9 @@ export type OpsAlertKind =
   | 'JOB_FAILED' // JobService.fail
   | 'WEBHOOK_FANOUT_FAILED' // messaging/httpSync/restock/loyalty catches
   | 'TRIAGE_FAILED' // notifySupportEvent('triage_failed', ...)
-  | 'STUCK_JOB_SWEPT'; // Task 17
+  | 'STUCK_JOB_SWEPT' // Task 17
+  | 'OPS_HEALTH_DEGRADED' // DevOps hardening 2026-09: a deep-health signal (DLQ depth, queue backlog, error spike, cron staleness) crossed its fail threshold
+  | 'AI_SPEND_CAP_EXCEEDED'; // DevOps hardening 2026-09: today's AiUsage spend crossed the daily soft cap (observability only — nothing is blocked)
 
 export interface OpsAlertInput {
   kind: OpsAlertKind;

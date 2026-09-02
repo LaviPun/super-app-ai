@@ -1,0 +1,140 @@
+name: db-restore-verify
+
+# DevOps hardening 2026-09 (item g): an untested backup is not a backup.
+# Weekly: download the newest nightly pg_dump artifact produced by
+# db-backup.yml, restore it into a scratch Postgres 18 service container, and
+# sanity-check the restored schema + row counts. Fails loudly (GitHub issue,
+# label: ops-restore-verify-failure) if the restore breaks or the restored
+# data looks empty.
+#
+# Why here and not a cron in the Railway ops worker: the worker has neither
+# GitHub credentials (backups are Actions artifacts) nor Docker (no scratch
+# Postgres), and restoring into the production DB is exactly what a restore
+# TEST must never do. GitHub Actions has all three for free. A local
+# owner-run equivalent lives at scripts/verify-backup-restore.mjs.
+#
+# Inert-but-noisy until backups produce artifacts: when no artifact exists the
+# run emits a warning (not a silent green) so "we have no backups at all"
+# stays visible.
+
+on:
+  schedule:
+    - cron: "0 5 * * 0" # Sundays 05:00 UTC — an hour after the nightly backup
+  workflow_dispatch: {}
+
+permissions:
+  actions: read # download the db-backup artifact
+  issues: write
+
+jobs:
+  restore-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: superapp_restore
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+    steps:
+      - name: Install postgresql-client 18 (PGDG)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends curl ca-certificates unzip
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends postgresql-client-18
+
+      - name: Locate newest backup artifact
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ARTIFACT=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=50" \
+            --jq '[.artifacts[] | select(.name | startswith("superapp-postgres-")) | select(.expired == false)] | sort_by(.created_at) | last // empty')
+          if [ -z "$ARTIFACT" ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No unexpired superapp-postgres-* backup artifact exists — THERE IS NOTHING TO RESTORE." \
+              "Either db-backup.yml is failing (check for open ops-backup-failure issues) or" \
+              "DATABASE_BACKUP_URL was never configured. See docs/runbooks/restore-from-backup.md."
+            exit 0
+          fi
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "id=$(echo "$ARTIFACT" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')" >> "$GITHUB_OUTPUT"
+          echo "name=$(echo "$ARTIFACT" | python3 -c 'import json,sys;print(json.load(sys.stdin)["name"])')" >> "$GITHUB_OUTPUT"
+
+      - name: Download + restore into scratch Postgres
+        if: steps.find.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          echo "Restoring artifact: ${{ steps.find.outputs.name }}"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${{ steps.find.outputs.id }}/zip" > backup.zip
+          unzip -o backup.zip
+          DUMP=$(ls superapp-postgres-*.sql.gz | head -n1)
+          # ON_ERROR_STOP: a partial restore must fail the job, not limp to green.
+          gunzip -c "$DUMP" | psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d superapp_restore -q
+
+      - name: Sanity-check restored data
+        if: steps.find.outputs.found == 'true'
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          q() { psql -h 127.0.0.1 -U postgres -d superapp_restore -tAc "$1"; }
+          TABLES=$(q "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
+          echo "Restored tables: $TABLES"
+          if [ "$TABLES" -lt 20 ]; then
+            echo "::error::Restore produced only $TABLES public tables (expected the full app schema, 20+)."
+            exit 1
+          fi
+          for T in Shop Session Job AppSettings _prisma_migrations; do
+            COUNT=$(q "SELECT count(*) FROM \"$T\"" || echo MISSING)
+            echo "  $T: $COUNT rows"
+            if [ "$COUNT" = "MISSING" ]; then
+              echo "::error::Critical table \"$T\" is missing from the restored dump."
+              exit 1
+            fi
+          done
+          MIGRATIONS=$(q "SELECT count(*) FROM \"_prisma_migrations\"")
+          if [ "$MIGRATIONS" -lt 1 ]; then
+            echo "::error::_prisma_migrations is empty — this dump does not look like the production database."
+            exit 1
+          fi
+          echo "Restore verification PASSED."
+
+      - name: File an issue on failure (loud, deduped)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --label ops-restore-verify-failure --state open --json number --jq 'length')
+          if [ "$EXISTING" -gt 0 ]; then
+            echo "An open ops-restore-verify-failure issue already exists — not filing a duplicate."
+            exit 0
+          fi
+          gh label create ops-restore-verify-failure --repo "$GITHUB_REPOSITORY" --color B60205 \
+            --description "Weekly backup restore verification failed" 2>/dev/null || true
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Backup restore verification FAILED ($(date -u +%Y-%m-%d))" \
+            --label ops-restore-verify-failure \
+            --body "The weekly restore test could not restore the latest nightly backup: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
+The backups we have may NOT be restorable. Runbook: docs/runbooks/restore-from-backup.md."

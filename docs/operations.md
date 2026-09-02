@@ -75,9 +75,25 @@ regression.
 comment, only an image-build gate: it docker-builds `apps/web/Dockerfile` on
 every `master` push to prove the image builds cleanly on a neutral runner. The
 actual deploy is Railway-native — GitHub auto-deploy per service, gated by
-Railway's own "Wait for CI" setting (per the workflow's comment; verify the
-gate is still enabled per-service in the Railway dashboard, since that
-setting lives outside this repo).
+Railway's "Wait for CI" setting. **Correction (2026-09-02 DevOps audit): that
+gate was NOT actually enabled** — a live `railway status --json` read showed
+`checkSuites: null` on both production services, so a red master could deploy.
+Enabling it is a 2-minute owner step; the exact CLI command and dashboard path
+are in [`runbooks/deploy-and-rollback.md`](./runbooks/deploy-and-rollback.md).
+
+**Post-deploy verification (`.github/workflows/post-deploy-smoke.yml`,
+2026-09)** fires after CI completes for a master push: polls `/healthz` until
+the new commit sha serves (healthz echoes `RAILWAY_GIT_COMMIT_SHA` as
+`release`), then checks `/healthz`, `/healthz/deep` and `/internal/login`,
+filing a GitHub issue on regression. Inert until the `PROD_BASE_URL` repo
+variable is set.
+
+**Backups**: nightly `pg_dump` (`db-backup.yml`, 04:00 UTC, 30-day artifact
+retention; requires the `DATABASE_BACKUP_URL` repo secret) + weekly restore
+verification into a scratch Postgres (`db-restore-verify.yml`); both file
+GitHub issues on failure. History note: every nightly backup between the
+Postgres 18 cutover and 2026-09-02 failed on a pg_dump version mismatch —
+see [`runbooks/restore-from-backup.md`](./runbooks/restore-from-backup.md).
 
 The `v2-*` CI workflows build and would-deploy the retired Platform V2 split
 (§1) — they are not part of the live release path for the app merchants
@@ -125,6 +141,19 @@ once, not once per layer or per retry) and skips paging on expected 4xx
 support-triage failure notifications. Full mechanics in
 [`docs/internal-admin.md`](./internal-admin.md#ops-alert-fan-out).
 
+**Ops health sweep + `/healthz/deep`** (DevOps hardening, 2026-09).
+`services/observability/ops-health.server.ts` computes threshold-classified
+signals — queue backlog, stuck RUNNING jobs, DLQ depth (24h), error-rate
+spike (15 min), cron heartbeat staleness, AI daily spend vs cap
+(`ai-spend-guard.server.ts`, observability only) — each ok/warn/fail. The
+`/api/cron` tick writes a heartbeat (`AppSettings.cronLastTickAt`), persists
+the snapshot (`AppSettings.opsHealthSnapshot`), fires
+`OPS_HEALTH_DEGRADED`/`AI_SPEND_CAP_EXCEEDED` through `OpsAlertService` for
+fail-level signals, and the internal admin shell renders a banner for any
+warn/fail — visible with zero alert keys configured. `/healthz/deep`
+(CRON_SECRET header or internal-admin session) serves the live signals plus
+db/redis probes; 503 only on fail (warn must not flap external monitors).
+
 **`/internal/funnel`** (WS-C, #19) is the generation funnel dashboard —
 `apps/web/app/routes/internal.funnel.tsx` backed by
 `services/observability/funnel.service.ts`. `FunnelService.windowStats`
@@ -155,6 +184,11 @@ own doc — this section is a pointer, not a summary to keep in sync by hand.
 |---|---|---|
 | [`runbooks/index.md`](./runbooks/index.md) | Index | Start here — severity ladder, first-responder checklist, internal admin quick links. |
 | [`runbooks/README.md`](./runbooks/README.md) | Index | Directory overview; points back at `index.md` and at this doc for topology/SLOs. |
+| [`runbooks/deploy-and-rollback.md`](./runbooks/deploy-and-rollback.md) | Deploy / rollback procedure | Deploy failed, bad build cut over, or "how do I roll back?" Includes the Wait-for-CI owner step. |
+| [`runbooks/db-down.md`](./runbooks/db-down.md) | Incident (SEV-1) | `/healthz` 503 with `db: fail`; Prisma connection errors flooding logs. |
+| [`runbooks/redis-down.md`](./runbooks/redis-down.md) | Incident (SEV-2) | `/healthz` 503 with `redis: fail`; queue-mode jobs stalling. |
+| [`runbooks/restore-from-backup.md`](./runbooks/restore-from-backup.md) | Incident (SEV-1) + verification | Data loss/corruption; also documents the backup inventory and the weekly restore-verify workflow. |
+| [`runbooks/secrets-rotation.md`](./runbooks/secrets-rotation.md) | Owner procedure | Rotating any secret; includes the dead-`ANTHROPIC_API_KEY` cleanup owner action. |
 | [`runbooks/publish-failure.md`](./runbooks/publish-failure.md) | Incident (SEV-1 → SEV-2) | Merchant reports "Publish failed", or a `Job` row has `status = FAILED, type = PUBLISH`. |
 | [`runbooks/provider-outage.md`](./runbooks/provider-outage.md) | Incident (SEV-2 → SEV-3) | Spike in AI-related `ErrorLog` rows, `AiUsage` failures, or "Module generation failed" reports. |
 | [`runbooks/webhook-storm.md`](./runbooks/webhook-storm.md) | Incident (SEV-2 → SEV-3) | High `WebhookEvent` insert rate, `FLOW_RUN` jobs backing up in `QUEUED`/`RUNNING`, Shopify retry spikes. |

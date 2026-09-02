@@ -24,5 +24,11 @@ jobs:
         run: docker build -f apps/web/Dockerfile -t superapp-web:${{ github.sha }} .
 
       # WS-A (2026-08): deploys are Railway-native (GitHub auto-deploy per
-      # service, gated by 'Wait for CI'). This job remains as the image-build
-      # gate only: master must always docker-build cleanly on a neutral runner.
+      # service). This job remains as the image-build gate only: master must
+      # always docker-build cleanly on a neutral runner.
+      #
+      # DevOps hardening (2026-09): the 'Wait for CI' gate this comment used
+      # to assert was found DISABLED in a live audit (checkSuites: null on
+      # both production services) — enabling it is an owner step documented
+      # in docs/runbooks/deploy-and-rollback.md. Post-deploy verification is
+      # post-deploy-smoke.yml (fires after CI completes on master).

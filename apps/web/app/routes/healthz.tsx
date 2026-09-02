@@ -70,5 +70,10 @@ export async function loader() {
   }
 
   const ok = checks.db === 'ok' && checks.redis !== 'fail';
-  return json({ ok, checks }, { status: ok ? 200 : 503 });
+  // DevOps hardening 2026-09: expose the deployed commit sha (Railway injects
+  // RAILWAY_GIT_COMMIT_SHA) so the post-deploy smoke workflow can confirm the
+  // NEW build is serving, not a still-running previous deploy. A bare commit
+  // sha discloses nothing sensitive; null outside Railway.
+  const release = process.env.RAILWAY_GIT_COMMIT_SHA ?? null;
+  return json({ ok, checks, release }, { status: ok ? 200 : 503 });
 }

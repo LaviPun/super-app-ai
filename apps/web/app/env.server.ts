@@ -71,6 +71,10 @@ const EnvSchema = z.object({
   // Observability (optional)
   SENTRY_DSN: z.string().url().optional(),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  // AI daily spend soft cap in cents (observability only — never blocks a
+  // request). AppSettings.aiDailySpendCapCents overrides; unset = 2000 (=$20,
+  // the size of the incident that motivated it). <= 0 disables the check.
+  AI_DAILY_SPEND_CAP_CENTS: z.coerce.number().optional(),
 
   // OpenTelemetry (optional — traces sent only when endpoint is set)
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),

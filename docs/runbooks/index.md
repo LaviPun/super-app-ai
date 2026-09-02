@@ -20,10 +20,28 @@ structure: **Detect → Triage → Contain → Fix → Post-mortem**.
 
 | Runbook | Trigger | Severity range |
 |---|---|---|
+| [Deploy + rollback](./deploy-and-rollback.md) | Deploy failed / bad build cut over / red master | SEV-1 – SEV-3 |
+| [Postgres down](./db-down.md) | `/healthz` 503 with `db: fail` | SEV-1 |
+| [Restore from backup](./restore-from-backup.md) | Data loss / corrupt DB | SEV-1 |
 | [Publish failure](./publish-failure.md) | Job table: `FAILED` / `PUBLISH` | SEV-1 – SEV-2 |
-| [Provider outage](./provider-outage.md) | AI generation errors spike | SEV-2 – SEV-3 |
-| [Webhook storm](./webhook-storm.md) | `WebhookEvent` insert rate spike | SEV-2 – SEV-3 |
+| [Redis down](./redis-down.md) | `/healthz` 503 with `redis: fail` | SEV-2 |
+| [Provider outage](./provider-outage.md) | AI generation errors spike / provider dead / credits exhausted | SEV-2 – SEV-3 |
+| [Webhook storm](./webhook-storm.md) | `WebhookEvent` insert rate spike / webhook backlog | SEV-2 – SEV-3 |
 | [Connector failure](./connector-failure.md) | Connector test / flow sync failures | SEV-3 – SEV-4 |
+| [Secrets rotation](./secrets-rotation.md) | Rotation need / leaked or dead key (see its dead-`ANTHROPIC_API_KEY` owner action) | — |
+
+**Top-5 failure modes → runbook:** deploy failed → deploy-and-rollback · db
+down → db-down · redis down → redis-down · AI provider dead/credit-exhausted →
+provider-outage · webhook backlog → webhook-storm.
+
+**On-call reality (solo founder):** there is no rotation — alerting must reach
+one phone. The alert path is `OpsAlertService` (Sentry + Slack + email once
+keys are configured in `/internal/integrations`), the cron ops-health sweep
+(every 5 min; banner in the internal admin even with no keys), and GitHub
+issues from the backup/smoke/restore-verify workflows. Response times in the
+severity ladder above are aspirations for waking hours; the containment
+designs (previous deploy keeps serving, jobs queue rather than drop, additive
+migrations) are what make overnight gaps survivable.
 
 ---
 
