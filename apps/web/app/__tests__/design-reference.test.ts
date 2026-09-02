@@ -7,10 +7,9 @@ import {
 import type { StorePalette } from '~/services/theme/theme-analyzer.service';
 import { compileCreateSingleRecipePrompt } from '~/services/ai/llm.server';
 import {
-  FRONTEND_DEVELOPER_REFINEMENT_PASS,
-  PREMIUM_OUTPUT_GUARDRAILS,
   PROMPT_PURPOSE_AND_GUIDANCE,
-  UI_DESIGNER_REFINEMENT_PASS,
+  STOREFRONT_QUALITY_PASS,
+  getPurposeAndGuidance,
 } from '~/services/ai/prompt-expectations.server';
 
 describe('design-reference fallback', () => {
@@ -62,7 +61,7 @@ describe('paletteToDesignReferencePack (live theme)', () => {
 });
 
 describe('prompt premium sections', () => {
-  it('includes DesignReferenceV1 and refinement passes in compiled prompt', () => {
+  it('includes DesignReferenceV1 and the consolidated quality pass in compiled prompt', () => {
     const designBlock = buildDesignReferencePromptBlock(deriveDesignReferencePack('https://bummer.in'));
     const { prompt } = compileCreateSingleRecipePrompt({
       purposeAndGuidance: PROMPT_PURPOSE_AND_GUIDANCE,
@@ -71,15 +70,33 @@ describe('prompt premium sections', () => {
       expectations: 'expectations',
       userRequest: 'Create premium popup',
       designReferenceBlock: designBlock,
-      uiDesignerPass: UI_DESIGNER_REFINEMENT_PASS,
-      frontendDeveloperPass: FRONTEND_DEVELOPER_REFINEMENT_PASS,
-      premiumGuardrails: PREMIUM_OUTPUT_GUARDRAILS,
+      uiDesignerPass: STOREFRONT_QUALITY_PASS,
     });
 
     expect(prompt).toContain('DesignReferenceV1');
-    expect(prompt).toContain('UI_DESIGNER_PASS');
-    expect(prompt).toContain('FRONTEND_DEVELOPER_PASS');
-    expect(prompt).toContain('Premium output guardrails');
+    expect(prompt).toContain('STOREFRONT_QUALITY_PASS');
+    // The unique substance folded in from the former three-pass trio survives.
+    expect(prompt).toContain('outcome-focused CTA label');
+    expect(prompt).toContain('no speculative keys');
+    expect(prompt).toContain('differ in both UX strategy and visual strategy');
+  });
+});
+
+describe('getPurposeAndGuidance type-gating', () => {
+  it('keeps the theme.section authoring paragraph for storefront types', () => {
+    expect(getPurposeAndGuidance('theme.section')).toBe(PROMPT_PURPOSE_AND_GUIDANCE);
+    expect(getPurposeAndGuidance('proxy.widget')).toContain('Storefront sections are NOT limited');
+  });
+
+  it('drops ONLY the theme.section authoring paragraph for non-storefront types', () => {
+    const purpose = getPurposeAndGuidance('functions.discountRules');
+    expect(purpose).not.toContain('Storefront sections are NOT limited');
+    // Every other paragraph survives verbatim.
+    expect(purpose).toContain('Purpose: You are generating Shopify storefront modules');
+    expect(purpose).toContain('Design quality bar:');
+    expect(purpose).toContain('User flow:');
+    expect(purpose).toContain('Responsive + accessibility:');
+    expect(purpose).toContain('CTA quality:');
   });
 });
 
