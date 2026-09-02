@@ -55,6 +55,15 @@ vi.mock('~/services/security/rate-limit.server', () => ({
   getClientIp: () => '127.0.0.1',
 }));
 
+// The route shares the worker scheduler's Redis tick lock so an external
+// trigger never overlaps an in-process tick. Default here: lock acquired
+// (no Redis in tests); individual cases override to exercise 'locked'.
+const acquireHttpCronLockMock = vi.fn();
+const releaseHttpCronLockMock = vi.fn(async () => {});
+vi.mock('~/services/jobs/cron-lock.server', () => ({
+  acquireHttpCronLock: acquireHttpCronLockMock,
+}));
+
 describe('/api/cron retention loader', () => {
   let loader: typeof import('~/routes/api.cron').loader;
 
@@ -85,6 +94,7 @@ describe('/api/cron retention loader', () => {
       cutoff: '2026-01-01T00:00:00.000Z',
     });
     enforceRateLimitMock.mockResolvedValue(undefined);
+    acquireHttpCronLockMock.mockResolvedValue({ status: 'acquired', release: releaseHttpCronLockMock });
     // Isolate CRON_SECRET via vi.stubEnv rather than mutating process.env
     // directly. Prisma's runtime env-loading repopulates CRON_SECRET from .env
     // into process.env, and vitest's fork pool shares one process.env across
@@ -163,6 +173,42 @@ describe('/api/cron retention loader', () => {
     expect(resumeDueWorkflowRunsMock).toHaveBeenCalledTimes(1);
     const body = (await res.json()) as { resumeSweep: Array<{ runId: string; status: string }> };
     expect(body.resumeSweep).toEqual([{ runId: 'flowpark_1', tenantId: 'shop_1', status: 'SUCCEEDED' }]);
+  });
+
+  it('releases the shared tick lock after a successful tick', async () => {
+    const res = await loader({
+      request: new Request('http://test/api/cron', {
+        headers: { 'x-cron-secret': 'expected-secret' },
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(acquireHttpCronLockMock).toHaveBeenCalledTimes(1);
+    expect(releaseHttpCronLockMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 200 { skipped: "locked" } without running sweeps when the worker scheduler holds the tick lock', async () => {
+    acquireHttpCronLockMock.mockResolvedValueOnce({ status: 'locked' });
+    const res = await loader({
+      request: new Request('http://test/api/cron', {
+        headers: { 'x-cron-secret': 'expected-secret' },
+      }),
+    });
+    expect(res.status).toBe(200); // a skip is not a failure — the GitHub fallback's dead-man's ping must still fire
+    const body = (await res.json()) as { skipped: string };
+    expect(body.skipped).toBe('locked');
+    expect(resumeDueWorkflowRunsMock).not.toHaveBeenCalled();
+    expect(runInternalAiAuditRetentionMock).not.toHaveBeenCalled();
+  });
+
+  it('still runs the tick (unlocked, manual trigger must always work) when the lock backend is unavailable', async () => {
+    acquireHttpCronLockMock.mockResolvedValueOnce({ status: 'unavailable', reason: 'no REDIS_URL' });
+    const res = await loader({
+      request: new Request('http://test/api/cron', {
+        headers: { 'x-cron-secret': 'expected-secret' },
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(resumeDueWorkflowRunsMock).toHaveBeenCalledTimes(1);
   });
 
   it('does not 500 the tick when the resume sweep throws (R3.5)', async () => {

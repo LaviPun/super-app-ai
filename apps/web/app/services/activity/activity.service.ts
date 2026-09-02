@@ -100,6 +100,9 @@ export type ActivityAction =
   // Ops alerting (WS-G) — OpsAlertService bookkeeping
   | 'OPS_ALERT_OCCURRED'
   | 'OPS_ALERT_FIRED'
+  // In-process cron scheduler (2026-09) — one row per tick with per-sweep counts + duration
+  | 'CRON_TICK'
+  | 'CRON_TICK_FAILED'
   // Integrations Hub (WS-INT) — every save/test action, one member per tile as it lands
   | 'OPS_INTEGRATION_TESTED'
   | 'OPS_INTEGRATION_SAVED';

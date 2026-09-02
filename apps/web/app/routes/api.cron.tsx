@@ -1,39 +1,27 @@
 /**
- * Cron trigger endpoint — called periodically by an external scheduler
- * (e.g. Shopify Partner cron, GitHub Actions, Cloudflare Cron Triggers, or any HTTP cron service).
+ * Cron trigger endpoint — the MANUAL / EXTERNAL way to run one cron tick.
+ *
+ * Since 2026-09 the primary trigger is the worker service's in-process
+ * scheduler (`services/jobs/cron-scheduler.server.ts`, every
+ * CRON_TICK_INTERVAL_MINUTES). This route stays for: a hand-run tick during an
+ * incident (`curl -H "X-Cron-Secret: …" /api/cron`), the GitHub Actions
+ * `cron.yml` fallback, and any external scheduler that takes over when
+ * CRON_SCHEDULER_ENABLED=false. Both triggers share the same Redis tick lock,
+ * so they never overlap: when the worker holds it this returns 200
+ * `{ skipped: 'locked' }` (a skip is not a failure — the fallback workflow's
+ * dead-man's ping must still fire).
  *
  * Protection: requires `X-Cron-Secret` header matching CRON_SECRET env var.
  * If CRON_SECRET is not set, the endpoint is disabled.
- *
- * Fires all FlowSchedule records whose nextRunAt ≤ now.
  */
 import { json } from '@remix-run/node';
-import { ScheduleService } from '~/services/flows/schedule.service';
-import { FlowRunnerService } from '~/services/flows/flow-runner.service';
-import { MessagingRunnerService } from '~/services/messaging/messaging-runner.service';
-import { HttpSyncRunnerService } from '~/services/integration/http-sync-runner.service';
-import { WorkflowEngineService } from '~/services/workflows/workflow-engine.service';
-import { PlanSyncService } from '~/services/billing/plan-sync.service';
-import { buildShopAuthResolver } from '~/services/flows/auth-resolver.server';
-import { runInternalAiAuditRetention } from '~/services/jobs/internal-ai-audit-retention.job';
-import { runInternalAiChatRetention } from '~/services/jobs/internal-ai-chat-retention.job';
-import { runLoyaltyExpirySweep, type LoyaltyExpiryResult } from '~/services/jobs/loyalty-expiry.job';
-import {
-  drainShopifyMetaobjectCleanupJobs,
-  type MetaobjectCleanupDrainResult,
-} from '~/services/jobs/shopify-metaobject-cleanup.job';
-import { sweepStuckRunningJobs, type StuckSweepResult } from '~/services/jobs/stuck-job-sweep.server';
-import { runOpsHealthSweep, type OpsHealthSweepResult } from '~/services/observability/ops-health.server';
+import { getCronTickIntervalMs } from '~/env.server';
+import { runCronTick } from '~/services/jobs/cron-tick.server';
+import { acquireHttpCronLock } from '~/services/jobs/cron-lock.server';
 import { constantTimeSecretMatch } from '~/services/security/secret-compare.server';
 import { logger } from '~/services/observability/logger.server';
-import { safeErrorMeta } from '~/services/observability/redact.server';
 import { enforceRateLimit, getClientIp } from '~/services/security/rate-limit.server';
 import { AppError } from '~/services/errors/app-error.server';
-import type { AdminApiContext } from '~/types/shopify';
-
-let lastAuditRetentionRunAt: number | null = null;
-let lastLoyaltyExpiryRunAt: number | null = null;
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 export async function loader({ request }: { request: Request }) {
   const secret = process.env.CRON_SECRET;
@@ -57,167 +45,19 @@ export async function loader({ request }: { request: Request }) {
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const scheduleService = new ScheduleService();
-  const runner = new FlowRunnerService();
-  const messagingRunner = new MessagingRunnerService();
-  const httpSyncRunner = new HttpSyncRunnerService();
-
-  const due = await scheduleService.claimDue();
-
-  const results: Array<{ scheduleId: string; shopDomain: string; ok: boolean; error?: string }> = [];
-
-  for (const item of due) {
-    let event: unknown = { kind: 'schedule', scheduleId: item.id };
-    try {
-      event = { ...JSON.parse(item.eventJson), kind: 'schedule', scheduleId: item.id };
-    } catch { /* keep default */ }
-
-    try {
-      // FlowRunnerService requires an admin context for Shopify API calls.
-      // For scheduled runs we pass a minimal stub — steps using Shopify APIs
-      // will fail gracefully and get retried; purely connector/HTTP steps work fine.
-      await runner.runForTrigger(item.shopDomain, null as unknown as AdminApiContext['admin'], 'SCHEDULED', event);
-      results.push({ scheduleId: item.id, shopDomain: item.shopDomain, ok: true });
-    } catch (err) {
-      results.push({ scheduleId: item.id, shopDomain: item.shopDomain, ok: false, error: String(err) });
-    }
-
-    // R3.4 sibling: fan out SCHEDULED broadcast campaigns for this shop. Messaging
-    // sends via app connectors (email/slack), so it works without an admin context.
-    // Own try/catch (C6) so a messaging failure never fails the schedule tick.
-    try {
-      await messagingRunner.runForTrigger(
-        item.shopDomain,
-        null as unknown as AdminApiContext['admin'],
-        'SCHEDULED',
-        event,
-      );
-    } catch (err) {
-      logger.warn('[api.cron] scheduled messaging fan-out failed', {
-        shopDomain: item.shopDomain,
-        scheduleId: item.id,
-        ...safeErrorMeta(err),
-      });
-    }
-
-    // Sibling (build #7a): fan out SCHEDULED integration.httpSync modules for this shop.
-    // Dispatch is a plain outbound connector call (no admin context needed). Own
-    // try/catch so a sync failure never fails the schedule tick.
-    try {
-      await httpSyncRunner.runForTrigger(
-        item.shopDomain,
-        null as unknown as AdminApiContext['admin'],
-        'SCHEDULED',
-        event,
-      );
-    } catch (err) {
-      logger.warn('[api.cron] scheduled httpSync fan-out failed', {
-        shopDomain: item.shopDomain,
-        scheduleId: item.id,
-        ...safeErrorMeta(err),
-      });
-    }
-  }
-
-  // R3.5 durable scheduler: resume parked (WAITING) WorkflowRuns whose resumeAt is
-  // due. Runs every tick alongside the absolute-cron schedule claim above; the CAS
-  // claim inside resumeDueWorkflowRuns makes overlapping ticks idempotent. Own
-  // try/catch (C6) so a sweep failure never 500s the whole cron tick.
-  let resumeSweep: Array<{ runId: string; tenantId: string; status: string; error?: string }> = [];
-  try {
-    resumeSweep = await new WorkflowEngineService().resumeDueWorkflowRuns({
-      limit: 25,
-      authResolverFor: (tenantId) => buildShopAuthResolver(tenantId),
+  const lock = await acquireHttpCronLock(getCronTickIntervalMs());
+  if (lock.status === 'locked') {
+    logger.info('[api.cron] tick skipped — the tick lock is held (worker scheduler or another trigger mid-tick)');
+    return json({
+      skipped: 'locked',
+      message: 'Another cron tick is in progress (worker scheduler holds the lock). Nothing to do.',
     });
-  } catch (err) {
-    logger.warn('[api.cron] workflow resume sweep failed', safeErrorMeta(err));
   }
 
-  // integration.httpSync dead-letter replay (build #7a): re-dispatch failed outbound
-  // syncs whose bounded backoff is due (DISCARDED after maxAttempts). Own try/catch (C6)
-  // so a replay failure never 500s the tick.
-  let httpSyncReplay: Array<{ id: string; moduleId: string; ok: boolean }> = [];
   try {
-    httpSyncReplay = await new HttpSyncRunnerService().replayDueDeadLetters(20);
-  } catch (err) {
-    logger.warn('[api.cron] httpSync dead-letter replay failed', safeErrorMeta(err));
+    const result = await runCronTick();
+    return json(result);
+  } finally {
+    if (lock.status === 'acquired') await lock.release();
   }
-
-  // App Pricing has no subscription webhooks: reconcile plan state (cancels,
-  // freezes, out-of-band changes) against the Partner API. Best-effort; own
-  // try/catch so a sweep failure never 500s the tick.
-  let planSyncSweep: { synced: number; failed: number } | null = null;
-  try {
-    const { synced, failed } = await new PlanSyncService().sweep();
-    planSyncSweep = { synced, failed };
-    if (synced || failed) logger.info('[api.cron] plan-sync sweep', { synced, failed });
-  } catch (err) {
-    logger.warn('[api.cron] plan-sync sweep failed', safeErrorMeta(err));
-  }
-
-  // Bounded drain of post-uninstall cleanup jobs queued by the app/uninstalled webhook.
-  let uninstallCleanup: MetaobjectCleanupDrainResult | null = null;
-  try {
-    uninstallCleanup = await drainShopifyMetaobjectCleanupJobs();
-  } catch (err) {
-    logger.warn('[api.cron] shopify-metaobject-cleanup drain failed', safeErrorMeta(err));
-  }
-
-  // WS-G Task 17: belt-and-suspenders reconciliation for Job rows stuck
-  // RUNNING (a worker crash/stall the BullMQ 'failed'-event reconciler
-  // never saw — see stuck-job-sweep.server.ts's doc comment). Own try/catch
-  // so a sweep failure never 500s the whole cron tick.
-  let stuckJobSweep: StuckSweepResult | null = null;
-  try {
-    stuckJobSweep = await sweepStuckRunningJobs();
-  } catch (err) {
-    logger.warn('[api.cron] stuck-running job sweep failed', safeErrorMeta(err));
-  }
-
-  // DevOps hardening 2026-09: heartbeat + ops-health snapshot + threshold
-  // alerts (DLQ depth, queue backlog, error spike, cron staleness, AI spend
-  // cap). Runs every tick — the heartbeat it writes is what the staleness
-  // signal measures. Own try/catch so a sweep failure never 500s the tick,
-  // but the failure is logged loudly (D8).
-  let opsHealthSweep: OpsHealthSweepResult | null = null;
-  try {
-    opsHealthSweep = await runOpsHealthSweep();
-  } catch (err) {
-    logger.error('[api.cron] ops-health sweep failed', safeErrorMeta(err));
-  }
-
-  let auditRetention: { deleted: number; retentionDays: number; cutoff: string } | null = null;
-  let chatRetention: { deleted: number; retentionDays: number; cutoff: string } | null = null;
-  const now = Date.now();
-  if (!lastAuditRetentionRunAt || now - lastAuditRetentionRunAt >= ONE_DAY_MS) {
-    try {
-      auditRetention = await runInternalAiAuditRetention();
-      lastAuditRetentionRunAt = now;
-    } catch (err) {
-      auditRetention = { deleted: 0, retentionDays: 0, cutoff: new Date().toISOString() };
-      logger.warn('[api.cron] internal-ai-audit-retention failed', safeErrorMeta(err));
-    }
-
-    try {
-      chatRetention = await runInternalAiChatRetention();
-    } catch (err) {
-      chatRetention = { deleted: 0, retentionDays: 0, cutoff: new Date().toISOString() };
-      logger.warn('[api.cron] internal-ai-chat-retention failed', safeErrorMeta(err));
-    }
-  }
-
-  // R3.6 loyalty expiry: absolute nightly sweep that ages out due point lots across
-  // shops with a loyalty-ledger composite. Daily cadence (idempotent, like the
-  // retention jobs). Own try/catch so a sweep failure never 500s the tick.
-  let loyaltyExpiry: LoyaltyExpiryResult | null = null;
-  if (!lastLoyaltyExpiryRunAt || now - lastLoyaltyExpiryRunAt >= ONE_DAY_MS) {
-    try {
-      loyaltyExpiry = await runLoyaltyExpirySweep({ now: new Date(now) });
-      lastLoyaltyExpiryRunAt = now;
-    } catch (err) {
-      logger.warn('[api.cron] loyalty-expiry sweep failed', safeErrorMeta(err));
-    }
-  }
-
-  return json({ ran: results.length, results, resumeSweep, httpSyncReplay, uninstallCleanup, auditRetention, chatRetention, loyaltyExpiry, planSyncSweep, stuckJobSweep, opsHealthSweep });
 }

@@ -14,6 +14,7 @@ import { loadJobOrchestratorConfig, resolveEffectiveMode } from '@superapp/job-o
 import { createWebWorkerRuntime, type WebWorkerRuntime } from '../app/services/jobs/worker-runtime.server.js';
 import { buildWorkerHandlers } from '../app/services/jobs/processors/index.js';
 import { createOpsWorkerRuntime, type OpsWorkerRuntime } from '../app/services/jobs/ops-queue.server.js';
+import { startCronScheduler } from '../app/services/jobs/cron-scheduler.server.js';
 
 const config = loadJobOrchestratorConfig();
 if (!config.queueRedisUrl) {
@@ -88,9 +89,22 @@ if (resolveEffectiveMode(config) === 'queue') {
   console.info('[worker] bullmq Worker mounted', { queue: 'superapp-ops' });
 }
 
+// 2026-09: the worker is the primary trigger for the scheduled sweeps
+// (/api/cron's body). Runs regardless of JOB_EXECUTION_MODE — the sweeps only
+// need DB + Redis, both of which this process already has. The lock rides on
+// this script's existing `redis` connection; one ticker across replicas.
+// CRON_SCHEDULER_ENABLED=false arms no timers (see cron-scheduler.server.ts).
+const cronScheduler = startCronScheduler({ redis });
+console.info('[worker] cron scheduler', {
+  enabled: cronScheduler.enabled,
+  intervalMs: cronScheduler.intervalMs,
+  timeoutMs: cronScheduler.timeoutMs,
+});
+
 async function shutdown(signal: string) {
   console.info(`[worker] ${signal} — shutting down`);
   clearInterval(heartbeat);
+  cronScheduler.stop();
   // Raise the force-exit window when a runtime is mounted so in-flight jobs
   // can drain via Worker.close() before Railway kills the process.
   const forceExitMs = runtime || opsWorker ? 30_000 : 5_000;
