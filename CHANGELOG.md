@@ -8,6 +8,19 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/); entries 
 
 PR #44 (prompt diet) is open but deliberately held un-merged pending a live-model eval — do not document it as shipped. (The WS-I cleanup previously noted here merged as PR #27 on 2026-08-27.)
 
+## [2026-09-02] — feat(worker): in-process cron scheduler with Redis lock — closes the never-scheduled `/api/cron` gap
+
+Branch `feat/worker-cron-scheduler` (fixes #51).
+
+### Fixed
+- **The scheduled sweeps effectively never ran on schedule.** `/api/cron` (flow/messaging/httpSync schedule ticks, workflow resume, DLQ replay, App Pricing plan sync, stuck-job sweep, retention, and since #46 the ops-health heartbeat) was only called by `.github/workflows/cron.yml`, whose `*/5` schedule GitHub throttled to one run every 2–5 hours (21 runs in 3 days). First live `/healthz/deep` reported the heartbeat 209 min stale. `docs/operations.md` had also (wrongly) said no GitHub schedule targeted it. See `docs/debug.md` §28
+
+### Added
+- `apps/web/app/services/jobs/cron-scheduler.server.ts` — `startCronScheduler()` mounted by `scripts/worker.ts`: first tick ~30 s after boot, then every `CRON_TICK_INTERVAL_MINUTES` (default 5); Redis `SET NX PX` lock (TTL = interval) so replicas never double-tick; `interval − 30 s` tick timeout with in-flight guard; every tick writes a `CRON_TICK` / `CRON_TICK_FAILED` ActivityLog row (actor `CRON`, per-sweep counts, duration, `cron_…` correlation id) and failures land in `ErrorLog` — the scheduler itself never throws or crash-loops. Kill switch `CRON_SCHEDULER_ENABLED` (default on), both vars in `env.server.ts` + `.env.example` + README.
+- `cron-tick.server.ts` — the route body extracted into a shared `runCronTick()`; `/api/cron` keeps working as the manual/external trigger and now shares the lock (returns `200 { skipped: "locked" }` mid-tick, so the fallback workflow's dead-man's ping still fires).
+- `docs/runbooks/cron-not-ticking.md` (+ index/operations rows); `docs/operations.md` §Cron rewritten to the truth; `cron.yml` header demoted to "fallback + liveness ping".
+- Tests: `cron-lock.test.ts`, `cron-scheduler.test.ts` (lock acquired / held / tick throws / lock backend down / kill switch / timer cadence / timeout + in-flight / never-rejects), `cron-tick.test.ts`, and three new `/api/cron` lock cases.
+
 ## [2026-09-02] — ci: pre-warm function-runner binary to kill wasm-job flake
 
 Commit `0e81e8e` (PR #48).

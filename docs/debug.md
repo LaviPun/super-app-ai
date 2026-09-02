@@ -936,3 +936,13 @@ Also switched the idempotency lookup from `automaticDiscountNodes` (search-index
 **Fix.** `ci.yml` adds a pre-warm step (3 attempts) that runs one `shopify app function info` before the parallel tests, forcing the download exactly once (verified against `@shopify/cli@4.7.0`).
 
 **Rule.** Anything a test suite lazily downloads on first use must be materialized once, serially, before parallel suites start — per-process dedupe is not cross-process dedupe.
+
+## §28 — `/api/cron` was never reliably scheduled — GitHub's `*/5` cron fired every 2–5 hours (issue #51, 2026-09-02)
+
+**Symptoms.** The new `/healthz/deep` `cronHeartbeat` signal failed on its first post-deploy smoke run: heartbeat 209 min stale (`fail` ≥ 60). `docs/operations.md` claimed "nothing configures what calls `/api/cron`"; the App Pricing plan-sync, DLQ replay, workflow resume, and stuck-job sweeps had effectively only run a few times a day since the Railway cutover.
+
+**Root cause.** A caller DID exist — `.github/workflows/cron.yml`, `schedule: "*/5 * * * *"`, active, every run green — but GitHub schedules are best-effort and were throttled to one run every 2–5 hours (21 runs between 2026-08-30 and 09-02 instead of 864). Each run really did hit production (`{"ran":0,…,"opsHealthSweep":{"status":"ok"}}`), so the workflow looked healthy and the dead-man's switch never fired: the ping proves *a* run happened, not that runs happen on schedule. No Railway `cronSchedule` existed on any service; the docs were wrong about the workflow and right about the effect.
+
+**Fix.** The `worker` service now schedules the tick in-process (`scripts/worker.ts` → `services/jobs/cron-scheduler.server.ts`): the route body was extracted into `runCronTick()` (`cron-tick.server.ts`), guarded by a Redis `SET NX PX` lock (TTL = interval) shared with `/api/cron`, bounded by an `interval − 30 s` timeout, and every tick/failure writes `CRON_TICK`/`CRON_TICK_FAILED` activity rows + `ErrorLog` with a `cron_…` correlation id. Kill switch `CRON_SCHEDULER_ENABLED`; interval `CRON_TICK_INTERVAL_MINUTES`. The workflow stays as a fallback/liveness ping. Runbook: `docs/runbooks/cron-not-ticking.md`.
+
+**Rule.** A green scheduled workflow is not evidence of a schedule. Anything that must run on a cadence needs an in-band heartbeat with a staleness threshold (`cronHeartbeat` is now that), and the schedule itself should live in a process we control.

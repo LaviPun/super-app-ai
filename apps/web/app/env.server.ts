@@ -67,6 +67,12 @@ const EnvSchema = z.object({
 
   // Cron endpoint protection (optional — endpoint disabled if not set)
   CRON_SECRET: z.string().optional(),
+  // In-process cron scheduler (worker service, 2026-09) — see docs/operations.md
+  // §Cron. Kill switch (default on) + tick interval in minutes (default 5; also
+  // the Redis lock TTL). Turn the switch off ONLY when an external scheduler
+  // is driving /api/cron instead.
+  CRON_SCHEDULER_ENABLED: z.string().optional(),
+  CRON_TICK_INTERVAL_MINUTES: z.coerce.number().int().positive().optional(),
 
   // Observability (optional)
   SENTRY_DSN: z.string().url().optional(),
@@ -367,4 +373,21 @@ export function getPublishJobBudgetMs(): number {
  */
 export function isPublishAsyncEnabled(): boolean {
   return parseBooleanEnv(process.env.PUBLISH_ASYNC_ENABLED, false);
+}
+
+/**
+ * In-process cron scheduler (2026-09, `scripts/worker.ts` →
+ * `services/jobs/cron-scheduler.server.ts`). ON by default: the worker is the
+ * primary trigger for the scheduled sweeps. Set `CRON_SCHEDULER_ENABLED=false`
+ * only to hand the tick to an external scheduler calling `/api/cron`.
+ */
+export function isCronSchedulerEnabled(): boolean {
+  return parseBooleanEnv(process.env.CRON_SCHEDULER_ENABLED, true);
+}
+
+/** Tick interval (and Redis lock TTL) in ms — `CRON_TICK_INTERVAL_MINUTES`, default 5. */
+export function getCronTickIntervalMs(): number {
+  const raw = Number.parseInt(process.env.CRON_TICK_INTERVAL_MINUTES ?? '', 10);
+  const minutes = Number.isFinite(raw) && raw > 0 ? raw : 5;
+  return minutes * 60_000;
 }

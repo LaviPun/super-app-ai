@@ -112,4 +112,6 @@ post-deploy-smoke → Run workflow) and confirm `/healthz/deep` is green.
   25/100, stuck RUNNING 1/10, DLQ-24h 10/50, error spike 15min 25/100, cron
   staleness 15/60 min, AI daily spend 80%/100% of cap).
 - Internal admin shows a warning/critical banner on any warn/fail signal
-  (written by the cron sweep every 5 minutes) even with no alert keys set.
+  (written by the cron sweep every 5 minutes — driven by the worker service's
+  in-process scheduler; see `cron-not-ticking.md` if it goes stale) even with
+  no alert keys set.

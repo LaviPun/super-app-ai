@@ -67,7 +67,7 @@ SuperApp supports Zapier/Make-style visual flow building:
 6. Click **Save flow** to persist. The flow is saved as a `flow.automation` module.
 
 ### Scheduled flows
-Navigate to **Flow Schedules** in the app to create cron-based triggers using standard 5-field cron syntax (UTC). Set `CRON_SECRET` in your environment and call `GET /api/cron` with `X-Cron-Secret: <secret>` from your hosting cron service (Cloudflare Cron Triggers, GitHub Actions, etc.) to fire due schedules.
+Navigate to **Flow Schedules** in the app to create cron-based triggers using standard 5-field cron syntax (UTC). Due schedules are fired by the worker service's in-process cron scheduler (every `CRON_TICK_INTERVAL_MINUTES`, default 5 — see `docs/operations.md` §Cron). To fire a tick by hand, or from an external scheduler when `CRON_SCHEDULER_ENABLED=false`, set `CRON_SECRET` and call `GET /api/cron` with `X-Cron-Secret: <secret>`.
 
 ### AI-generated flows
 You can also generate flows via the AI builder on the Home page by describing the automation you want. The AI produces a `flow.automation` RecipeSpec that can then be edited in the visual builder.

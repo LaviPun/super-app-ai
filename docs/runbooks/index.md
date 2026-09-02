@@ -28,6 +28,7 @@ structure: **Detect → Triage → Contain → Fix → Post-mortem**.
 | [Provider outage](./provider-outage.md) | AI generation errors spike / provider dead / credits exhausted | SEV-2 – SEV-3 |
 | [Webhook storm](./webhook-storm.md) | `WebhookEvent` insert rate spike / webhook backlog | SEV-2 – SEV-3 |
 | [Connector failure](./connector-failure.md) | Connector test / flow sync failures | SEV-3 – SEV-4 |
+| [Cron not ticking](./cron-not-ticking.md) | `/healthz/deep` `cronHeartbeat` warn/fail; no `CRON_TICK` activity rows; scheduled sweeps not running | SEV-2 – SEV-3 |
 | [Secrets rotation](./secrets-rotation.md) | Rotation need / leaked or dead key (see its dead-`ANTHROPIC_API_KEY` owner action) | — |
 
 **Top-5 failure modes → runbook:** deploy failed → deploy-and-rollback · db
@@ -37,7 +38,8 @@ provider-outage · webhook backlog → webhook-storm.
 **On-call reality (solo founder):** there is no rotation — alerting must reach
 one phone. The alert path is `OpsAlertService` (Sentry + Slack + email once
 keys are configured in `/internal/integrations`), the cron ops-health sweep
-(every 5 min; banner in the internal admin even with no keys), and GitHub
+(every 5 min from the worker's in-process scheduler; banner in the internal
+admin even with no keys), and GitHub
 issues from the backup/smoke/restore-verify workflows. Response times in the
 severity ladder above are aspirations for waking hours; the containment
 designs (previous deploy keeps serving, jobs queue rather than drop, additive
