@@ -37,16 +37,36 @@ live topology; its Railway configs describe services that are not deployed.
 See `docs/architecture.md` §2/§8 for the full inventory of what's live versus
 dead in that tree — this doc does not repeat it, by name or otherwise.
 
-**Cron.** `/api/cron` (`apps/web/app/routes/api.cron.tsx`) is a real,
-`X-Cron-Secret`-protected HTTP endpoint (returns 503 if `CRON_SECRET` is
-unset) that runs the scheduled sweeps — flow/messaging/httpSync schedule
-ticks, the workflow-engine resume sweep, dead-letter replay, App Pricing
-plan reconciliation. **Nothing in this repo configures what calls it or on
-what interval** — no Railway cron block, no GitHub Actions schedule targets
-it (the `ci.yml` `schedule:` trigger is the unrelated nightly eval flywheel).
-The trigger is an external scheduler configured outside this codebase; verify
-its actual interval in the Railway/scheduler dashboard rather than assuming
-one from this doc.
+**Cron.** The scheduled sweeps — flow/messaging/httpSync schedule ticks, the
+workflow-engine resume sweep, httpSync dead-letter replay, App Pricing plan
+reconciliation, post-uninstall cleanup drain, the stuck-RUNNING job sweep,
+daily retention/loyalty-expiry, and the ops-health sweep that writes the
+`AppSettings.cronLastTickAt` heartbeat — live in one shared function,
+`runCronTick()` (`apps/web/app/services/jobs/cron-tick.server.ts`). Two
+triggers call it:
+
+- **Primary (since 2026-09): the `worker` service's in-process scheduler**
+  (`scripts/worker.ts` → `services/jobs/cron-scheduler.server.ts`). First
+  tick ~30 s after boot, then every `CRON_TICK_INTERVAL_MINUTES` (default 5).
+  A Redis lock (`SET NX PX`, TTL = interval, key `superapp:cron:tick-lock`)
+  guarantees one ticker across worker replicas; a tick that exceeds
+  `interval − 30 s` is abandoned, logged, and the next slot is skipped as
+  in-flight rather than doubled. Every tick writes a `CRON_TICK` /
+  `CRON_TICK_FAILED` ActivityLog row (actor `CRON`, per-sweep counts +
+  duration + `cron_…` correlation id); failures also land in `ErrorLog`. Kill
+  switch: `CRON_SCHEDULER_ENABLED=false` arms no timers.
+- **Manual / external: `/api/cron`** (`routes/api.cron.tsx`), the
+  `X-Cron-Secret`-protected HTTP endpoint (503 if `CRON_SECRET` is unset). It
+  takes the same lock, so it returns `200 { skipped: "locked" }` when the
+  worker is mid-tick. `.github/workflows/cron.yml` still calls it on a
+  `*/5 * * * *` schedule chained to the healthchecks.io dead-man's ping — but
+  GitHub's scheduled workflows are best-effort and in practice fired every
+  2–5 **hours** here (21 runs in 3 days, 2026-08-30 → 09-02), which is why
+  the worker scheduler exists (`docs/debug.md` §28, issue #51). Treat the
+  workflow as a fallback and a web-service liveness ping, not the schedule.
+
+No Railway `cronSchedule` is configured on any service (verified
+`railway status --json`, 2026-09-02) and none is needed.
 
 **Postgres / Redis.** Postgres (via Prisma) is the system of record;
 `apps/web/prisma/schema.prisma`'s `datasource` block has read `provider =
@@ -156,7 +176,7 @@ support-triage failure notifications. Full mechanics in
 signals — queue backlog, stuck RUNNING jobs, DLQ depth (24h), error-rate
 spike (15 min), cron heartbeat staleness, AI daily spend vs cap
 (`ai-spend-guard.server.ts`, observability only) — each ok/warn/fail. The
-`/api/cron` tick writes a heartbeat (`AppSettings.cronLastTickAt`), persists
+cron tick (worker scheduler or `/api/cron`) writes a heartbeat (`AppSettings.cronLastTickAt`), persists
 the snapshot (`AppSettings.opsHealthSnapshot`), fires
 `OPS_HEALTH_DEGRADED`/`AI_SPEND_CAP_EXCEEDED` through `OpsAlertService` for
 fail-level signals, and the internal admin shell renders a banner for any
@@ -203,6 +223,7 @@ own doc — this section is a pointer, not a summary to keep in sync by hand.
 | [`runbooks/provider-outage.md`](./runbooks/provider-outage.md) | Incident (SEV-2 → SEV-3) | Spike in AI-related `ErrorLog` rows, `AiUsage` failures, or "Module generation failed" reports. |
 | [`runbooks/webhook-storm.md`](./runbooks/webhook-storm.md) | Incident (SEV-2 → SEV-3) | High `WebhookEvent` insert rate, `FLOW_RUN` jobs backing up in `QUEUED`/`RUNNING`, Shopify retry spikes. |
 | [`runbooks/connector-failure.md`](./runbooks/connector-failure.md) | Incident (SEV-3 → SEV-4) | Connector test errors, a flow step's connector call failing, SSRF block alerts. |
+| [`runbooks/cron-not-ticking.md`](./runbooks/cron-not-ticking.md) | Incident (SEV-2 → SEV-3) | `/healthz/deep` `cronHeartbeat` warn/fail, no recent `CRON_TICK` activity rows, scheduled flows / DLQ replay / plan sync not running. |
 | [`runbooks/postgres-migration.md`](./runbooks/postgres-migration.md) | Historical / migration record | Reference for how the SQLite→Postgres cutover was staged — not a live procedure to re-run. |
 | [`runbooks/app-pricing-setup.md`](./runbooks/app-pricing-setup.md) | One-time owner-run activation | Turning on Shopify App Pricing (the billing code is merged but inert until this checklist is run and its env vars are set). |
 | [`runbooks/scope-reconsent.md`](./runbooks/scope-reconsent.md) | One-time owner-run release | Rolling out the 19-scope re-consent list — currently blocked upstream by a Shopify CLI validation bug (cli#8386); check the runbook's own STATUS line before assuming it's actionable. |

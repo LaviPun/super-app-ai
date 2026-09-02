@@ -249,7 +249,8 @@ A handful need explanation beyond their name:
 | `INTERNAL_ADMIN_SESSION_SECRET` | ≥ 16 chars; signs the `__superapp_internal` internal-admin cookie. |
 | `LLM_PROVIDER` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | Merchant-generation providers are credentials-first — see [`docs/ai-providers.md`](docs/ai-providers.md) for the fallback chain and pitfalls. |
 | `INTERNAL_AI_ROUTER_*` | Internal prompt-router tuning (canary shops, shadow mode, circuit breaker). See [`docs/ai-providers.md`](docs/ai-providers.md) and [`docs/internal-admin.md`](docs/internal-admin.md). |
-| `CRON_SECRET` | Required if `/api/cron` is exposed; shared secret gating the cron dispatch endpoint. |
+| `CRON_SECRET` | Required if `/api/cron` is exposed; shared secret gating the cron dispatch endpoint (and `/healthz/deep`). |
+| `CRON_SCHEDULER_ENABLED` / `CRON_TICK_INTERVAL_MINUTES` | Worker-service in-process cron scheduler: kill switch (default `true`) and tick interval (default `5`, also the Redis lock TTL). See `docs/operations.md` §Cron and `docs/runbooks/cron-not-ticking.md`. |
 
 > Never commit `.env` files. `.gitignore` already excludes them; secrets/PII must also never appear in logs (enforced by `apps/web/app/services/observability/redact.server.ts`).
 
