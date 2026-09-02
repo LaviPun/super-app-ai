@@ -1,3 +1,5 @@
+> **Per-PR history since the WS-J docs rewrite (2026-08-27) lives in the root [`CHANGELOG.md`](../CHANGELOG.md)** — this file is the long-form implementation log and is not updated per merge. Notable UI deltas since the sections below were written: the merchant module edit page was restructured in PR #36 (preview → configure → publish flow; Overview/Settings tabs under `apps/web/app/components/merchant/module-detail/`; delete moved into a collapsed Settings disclosure), and the `/generate` Builder gained a 1–3 concept-count selector, per-concept preview, and a real-pipeline-driven loading animation in PR #37.
+
 ## 2026-07-03 — Unified Builder + generation-uplift corrections (spec 027, branch `feat/027-unified-builder`)
 
 Follow-on branch off the repair tip. Canonical plan: [`../specs/027-unified-builder/plan.md`](../specs/027-unified-builder/plan.md). All commits green (`tsc` clean in all three packages; web 668 passed / 16 skipped; core 148; contracts 55).
@@ -500,7 +502,7 @@ Closeout closes when (a) every tracking-board `Status` cell moves from `Planned`
 
 **Theme app extension — delivered:**
 
-- **Universal Slot block:** `extensions/theme-app-extension/blocks/universal-slot.liquid`. Reads `shop.metafields['superapp.theme']['module_refs'].value` (list.metaobject_reference), finds entry by `module_id`, renders module.
+- **Universal Slot block:** `extensions/theme-app-extension/blocks/universal-slot.liquid`. Reads `shop.metafields['superapp_theme']['module_refs'].value` (list.metaobject_reference), finds entry by `module_id`, renders module.
 - **Product Slot block:** `extensions/theme-app-extension/blocks/product-slot.liquid`. Same metaobject lookup on product pages.
 - **Collection Slot block:** `extensions/theme-app-extension/blocks/collection-slot.liquid`. Same pattern for collection pages.
 - **App Embed (global modules):** `extensions/theme-app-extension/blocks/superapp-theme-modules.liquid`. Iterates all `module_refs` entries, renders `activation_type == 'global'` modules.
@@ -520,14 +522,14 @@ The **Universal Module Slot** model: one app block = one slot; `module_id` block
 
 | Surface | Status | Config source |
 |---------|--------|---------------|
-| Theme slots (Universal, Product, Collection, Embed) | ✅ Complete | `$app:superapp_module` via `superapp.theme/module_refs` (list.metaobject_reference) |
-| Admin UI blocks | ✅ Complete | `$app:superapp_admin_block` via `superapp.admin/block_refs` |
-| Admin UI actions | ✅ Complete | `$app:superapp_admin_action` via `superapp.admin/action_refs` |
-| Checkout UI extension | ✅ Complete | `$app:superapp_checkout_upsell` via `superapp.checkout/upsell_refs` |
-| Customer Account blocks | ✅ Complete | `$app:superapp_customer_account_block` via `superapp.customer_account/block_refs` |
+| Theme slots (Universal, Product, Collection, Embed) | ✅ Complete | `$app:superapp_module` via `superapp_theme/module_refs` (list.metaobject_reference) |
+| Admin UI blocks | ✅ Complete | `$app:superapp_admin_block` via `superapp_admin/block_refs` |
+| Admin UI actions | ✅ Complete | `$app:superapp_admin_action` via `superapp_admin/action_refs` |
+| Checkout UI extension | ✅ Complete | `$app:superapp_checkout_upsell` via `superapp_checkout/upsell_refs` |
+| Customer Account blocks | ✅ Complete | `$app:superapp_customer_account_block` via `superapp_customer_account/block_refs` |
 | Proxy widget | ✅ Complete | `$app:superapp_proxy_widget` — lookup by handle `superapp-proxy-{widgetId}` |
-| Cart Transform Function | ✅ Complete | `$app:superapp_function_config` via `superapp.functions/fn_cartTransform` |
-| Other Functions | ✅ Complete | `$app:superapp_function_config` via `superapp.functions/fn_{key}` |
+| Cart Transform Function | ✅ Complete | `$app:superapp_function_config` via `superapp_functions/fn_cartTransform` |
+| Other Functions | ✅ Complete | `$app:superapp_function_config` via `superapp_functions/fn_{key}` |
 | Post-purchase | Planned | Config-based ShouldRender/Render |
 
 ---
@@ -888,7 +890,7 @@ The modules page placeholder and help text nudge merchants to describe purpose +
 | Recipe schema | Same | `target` z.enum with 4 values, `blocks` array (TEXT/LINK/BADGE/DIVIDER), `b2bOnly` flag |
 | Compiler | `services/recipes/compiler/customerAccount.blocks.ts` | Emits `customerAccountBlockPayload` → `$app:superapp_customer_account_block` metaobject via `PublishService` |
 | Compiler index wired | `services/recipes/compiler/index.ts` | `case 'customerAccount.blocks'` added |
-| Config API route | `routes/api.customer-account.config.tsx` | Reads `superapp.customer_account/block_refs` metaobject references; returns block list |
+| Config API route | `routes/api.customer-account.config.tsx` | Reads `superapp_customer_account/block_refs` metaobject references; returns block list |
 | Capability gating | `packages/core/src/capabilities.ts` | `CUSTOMER_ACCOUNT_UI` + `CUSTOMER_ACCOUNT_B2B_PROFILE` capabilities defined |
 | Extension host | `extensions/customer-account-ui/` | **Preact + Polaris web components** (2026-01); config-driven; 64 KB script limit (see [debug.md](./debug.md) §5) |
 | ModuleCategory | `packages/core/src/recipe.ts` | `CUSTOMER_ACCOUNT` added to `ModuleCategory` type |
@@ -907,7 +909,7 @@ The recipe schema and the deployed extension intentionally cover different scope
 ### Customer Account UI extension (stack and limits)
 
 - **Stack:** Preact, `@shopify/ui-extensions` 2026.1.x, Polaris web components (`s-stack`, `s-heading`, `s-text`, `s-link`, `s-badge`, `s-separator`). Entry: `import '@shopify/ui-extensions/preact'`; default export `async function extension() { render(<Block />, document.body); }`.
-- **Config:** Extension reads `$app:superapp_customer_account_block` metaobject references via `superapp.customer_account/block_refs` (list.metaobject_reference) using `shopify.query()` (Storefront API — `storefront=public_read`). `shopify.extension.toml` has `[extensions.capabilities]` with `api_access = true`.
+- **Config:** Extension reads `$app:superapp_customer_account_block` metaobject references via `superapp_customer_account/block_refs` (list.metaobject_reference) using `shopify.query()` (Storefront API — `storefront=public_read`). `shopify.extension.toml` has `[extensions.capabilities]` with `api_access = true`.
 - **64 KB limit:** Shopify enforces a 64 KB compiled script limit for UI extensions (2025-10+). React + `@shopify/ui-extensions-react` exceeded it; migration to Preact + Polaris keeps the bundle under the limit. See [debug.md](./debug.md) §§1, 5.
 
 ### Acceptance criteria
@@ -1817,21 +1819,21 @@ All published module configs are stored as **Shopify metaobject entries** — ne
 
 | Surface | Metaobject type | List metafield | Written by |
 |---|---|---|---|
-| Theme modules | `$app:superapp_module` | `superapp.theme/module_refs` | `PublishService.writeThemeModule()` |
-| Admin blocks | `$app:superapp_admin_block` | `superapp.admin/block_refs` | `PublishService.writeAdminBlock()` |
-| Admin actions | `$app:superapp_admin_action` | `superapp.admin/action_refs` | `PublishService.writeAdminAction()` |
-| Checkout upsell | `$app:superapp_checkout_upsell` | `superapp.checkout/upsell_refs` | `PublishService.writeCheckoutUpsell()` |
-| Customer account | `$app:superapp_customer_account_block` | `superapp.customer_account/block_refs` | `PublishService.writeCustomerAccountBlock()` |
+| Theme modules | `$app:superapp_module` | `superapp_theme/module_refs` | `PublishService.writeThemeModule()` |
+| Admin blocks | `$app:superapp_admin_block` | `superapp_admin/block_refs` | `PublishService.writeAdminBlock()` |
+| Admin actions | `$app:superapp_admin_action` | `superapp_admin/action_refs` | `PublishService.writeAdminAction()` |
+| Checkout upsell | `$app:superapp_checkout_upsell` | `superapp_checkout/upsell_refs` | `PublishService.writeCheckoutUpsell()` |
+| Customer account | `$app:superapp_customer_account_block` | `superapp_customer_account/block_refs` | `PublishService.writeCustomerAccountBlock()` |
 | Proxy widget | `$app:superapp_proxy_widget` | handle lookup only (`superapp-proxy-{widgetId}`) | `MetaobjectService.upsertProxyWidgetObject()` |
-| Shopify Functions | `$app:superapp_function_config` | `superapp.functions/fn_{key}` (single ref) | `PublishService.writeFunctionConfig()` |
+| Shopify Functions | `$app:superapp_function_config` | `superapp_functions/fn_{key}` (single ref) | `PublishService.writeFunctionConfig()` |
 
 ### Admin UI block rendering
-- `useAdminBlocks(target)` — fetches `superapp.admin/block_refs` references via Admin GraphQL `references(first: 128)`, filters by `b.target === target`
+- `useAdminBlocks(target)` — fetches `superapp_admin/block_refs` references via Admin GraphQL `references(first: 128)`, filters by `b.target === target`
 - `AdminBlockRenderer` — fully generic: renders **all** config fields dynamically, no hardcoded field names
 - Placeholder state when metaobject list empty: "No admin blocks configured for [surface]"
 
 ### Checkout UI block rendering
-- `useCheckoutConfig(target)` — fetches `superapp.checkout/upsell_refs` references via `shopify.query()` (Storefront API), reads first published upsell from metaobject `config_json`
+- `useCheckoutConfig(target)` — fetches `superapp_checkout/upsell_refs` references via `shopify.query()` (Storefront API), reads first published upsell from metaobject `config_json`
 - `CheckoutBlockRenderer` — same generic pattern, checkout-safe props only
 
 ### `activationType` on theme modules

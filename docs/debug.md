@@ -97,7 +97,7 @@ Avoid adding `customer-account.page.render` to an extension that already registe
 ### Where things *do* show
 
 - **Customer Account** (customer-facing):  
-  Use templates that target **Customer Account** (e.g. “Order status block”, “Order index block”, “Profile block”). Those are compiled to the `superapp.customer_account` / `blocks` metafield and **are** rendered by the existing Customer Account UI extension on:
+  Use templates that target **Customer Account** (e.g. “Order status block”, “Order index block”, “Profile block”). Those are compiled to the `superapp_customer_account` / `blocks` metafield and **are** rendered by the existing Customer Account UI extension on:
   - **Order status page** (customer view of a single order)
   - **Order index page** (customer’s order list)
   - **Profile page**
@@ -894,3 +894,45 @@ Also switched the idempotency lookup from `automaticDiscountNodes` (search-index
 - **Cross-check:** rule `skuIn[0]` == parent variant SKU on the store (`superapp-bundle-task6-verify-bundle`). A republish was idempotent (no duplicate-title error), confirming the `discountNodes` lookup fix.
 
 **Unverified (needs a human).** The storefront cart eyeball (brief Step 4) was not driven headlessly: add the bundle via its theme widget, open cart/checkout, and confirm one merged line reduced to $99.99 by a "SuperApp Bundle Pricing" discount. The three artifacts and their consistency (rule SKU == real merged-line SKU, discount node ACTIVE on the product class) are the functional precondition for that outcome; only the visual confirmation remains.
+
+## §24 — Metafield namespaces with dots are rejected — `superapp.*` → `superapp_*` (PR #45, 2026-08-28)
+
+**Symptoms.** Every theme-module publish 502'd at step 0: `ensureMetafieldDefinition superapp.theme/module_refs → "Namespace contains one or more invalid characters"`.
+
+**Root cause.** Shopify requires metafield namespaces (both `metafieldDefinitionCreate` and `metafieldsSet`) to be 3–255 chars of alphanumeric/hyphen/underscore only — dots are rejected (verified against the 2026-04+ `MetafieldDefinitionInput`/`MetafieldsSetInput` docs). Every namespace this app wrote was dotted (`superapp.theme`, `superapp.admin`, `superapp.functions`, `superapp.checkout`, `superapp.customer_account`, `superapp.flow`, `superapp.integration`).
+
+**Fix.** One-pass rename of writers *and* every reader (publish/unpublish, metaobject backfill, `api.customer-account.config`, compiler payloads, TAE Liquid blocks, and the extension GraphQL readers) to underscore forms: `superapp.theme` → `superapp_theme`, etc.; the non-destructive guard prefix `'superapp.'` → `'superapp_'`. No data migration needed: both mutations rejected the dotted names, so no store ever held data under them. Left alone (different rules, not metafield namespaces): metaobject types (`$app:superapp_module` etc.), the `$app:superapp_messaging` reserved namespace, and flow-catalog trigger/action ids (`superapp.module.published`).
+
+**Guard.** `apps/web/app/__tests__/metafield-namespace-charset.test.ts` validates every exported namespace constant against the charset rule and sweeps app/extension/Liquid sources for new dotted `superapp.*` literals.
+
+**Related (same call path, different bug, PR #34, 2026-08-28):** `ensureMetafieldDefinition` also sent explicit `access.admin` values — Shopify fixes admin access on non-`$app` namespaces at the implicit `PUBLIC_READ_WRITE` default and rejects *any* explicit `access.admin`, so the retry candidates now omit `admin` entirely (first `{ storefront: PUBLIC_READ }`, then no access override).
+
+## §25 — Storefront previews silently lost their stylesheet in production — `extensions/` never copied into the Docker image (PR #45, 2026-08-28)
+
+**Symptoms.** In production only, every storefront preview rendered with legacy CSS; stdout showed `[preview] superapp-modules.css not found from cwd=/app/apps/web (tried 3 paths)` once at boot, then nothing.
+
+**Root cause.** `apps/web/Dockerfile` never copied `extensions/`, so `PreviewService.loadPackCss()` could not resolve `extensions/theme-app-extension/assets/superapp-modules.css` and degraded to legacy CSS for the process lifetime — a boot-time warning was the only signal.
+
+**Fix.** The Dockerfile now copies `extensions/theme-app-extension/assets` (the only part of `extensions/` read at runtime — `loadPackCss()` is the sole fs consumer). D8 (no silent failures): the miss is now error-level *and* written to `ErrorLog` (fire-and-forget, non-fatal) so a bad image layout surfaces in internal-admin Logs, not just stdout.
+
+**Rule.** Any new runtime `fs` read of a repo path outside `apps/web` must be paired with a Dockerfile `COPY` and a loud (ErrorLog-visible) miss path — local dev always has the full tree, so only production ever hits the gap.
+
+## §26 — GitHub rejected three workflow files — column-0 continuation lines terminate a `run: |` block scalar (PR #47, 2026-09-02)
+
+**Symptoms.** `db-backup.yml`, `db-restore-verify.yml`, and `post-deploy-smoke.yml` (all from PR #46) failed at GitHub's workflow-parse level: "This run likely failed because of a workflow file issue", zero jobs run — plus synthetic failed "push" runs for the unparseable files.
+
+**Root cause.** Identical in all three: the issue-on-failure step's multi-line `gh issue create --body "..."` string had continuation lines starting at column 0. In YAML, a non-indented line ends the `run: |` block scalar, turning the rest of the body text into invalid top-level YAML keys.
+
+**Fix.** Bodies are built with an indented `printf '%s\n\n%s'` command substitution instead of a bare multi-line quoted string. Also hardened while in there: `db-backup.yml` reads `DATABASE_BACKUP_URL` via `env:` instead of interpolating `${{ secrets.* }}` into the script, plus shellcheck fixes (SC2129, SC2012, SC2034). `actionlint` is now clean across `.github/workflows/`.
+
+**Rule.** Inside a `run: |` script, every line must stay indented to the block-scalar level — build long strings with `printf`/heredocs, never with a quoted string that wraps to column 0. Run `actionlint` before pushing workflow changes; GitHub's parser failure mode is silent (no job even starts).
+
+## §27 — Flaky wasm CI job — parallel suites raced the function-runner binary download (PR #48, 2026-09-02)
+
+**Symptoms.** Intermittent `Failed to start function-runner: spawn .../bin/function-runner-9.2.2 ENOENT` in the CI Function Extensions (wasm) job; reruns passed.
+
+**Root cause.** The job runs the six extension suites in parallel (`pnpm -r`). Each suite's `beforeAll` shells out to `shopify app function info`, which lazily downloads the function-runner binary into the CLI's bin dir on first use — and the CLI dedupes that download only *within one process*. Concurrent first-uses race cross-process, so a suite could spawn a missing/partial binary.
+
+**Fix.** `ci.yml` adds a pre-warm step (3 attempts) that runs one `shopify app function info` before the parallel tests, forcing the download exactly once (verified against `@shopify/cli@4.7.0`).
+
+**Rule.** Anything a test suite lazily downloads on first use must be materialized once, serially, before parallel suites start — per-process dedupe is not cross-process dedupe.

@@ -6,7 +6,21 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/); entries 
 
 ## [Unreleased]
 
-WS-I (cleanup) is in flight but not yet merged to `master` as of this update (2026-08-27) — see the launch program doc for status.
+PR #44 (prompt diet) is open but deliberately held un-merged pending a live-model eval — do not document it as shipped. (The WS-I cleanup previously noted here merged as PR #27 on 2026-08-27.)
+
+## [2026-09-02] — ci: pre-warm function-runner binary to kill wasm-job flake
+
+Commit `0e81e8e` (PR #48).
+
+### Fixed
+- Intermittent `spawn .../function-runner-9.2.2 ENOENT` in the Function Extensions (wasm) CI job: the six extension suites run in parallel and each lazily triggers the Shopify CLI's function-runner binary download, which is deduped only within one process — concurrent first-uses raced cross-process. `ci.yml` now pre-warms the binary with one `shopify app function info` (3 attempts) before the parallel suites. See `docs/debug.md` §27
+
+## [2026-09-02] — fix: repair PR #46 workflow files rejected by GitHub's parser
+
+Commit `413d376` (PR #47).
+
+### Fixed
+- `db-backup.yml`, `db-restore-verify.yml`, and `post-deploy-smoke.yml` all failed at GitHub's workflow-parse level (zero jobs run): their issue-on-failure steps built multi-line `gh issue create --body "..."` strings with continuation lines at column 0, which terminates a `run: |` block scalar and turns the rest into invalid top-level YAML. Bodies are now built with an indented `printf` command substitution; `db-backup.yml` also reads `DATABASE_BACKUP_URL` via `env:` instead of interpolating `${{ secrets.* }}` into the script, plus shellcheck cleanups — `actionlint` is now clean across `.github/workflows/`. See `docs/debug.md` §26
 
 ## [2026-09-02] — DevOps hardening: CI-gated deploys, deep health, alerting, spend guardrail, runbooks
 
@@ -23,6 +37,71 @@ Branch `feat/devops-hardening`.
 - Weekly backup restore verification (`.github/workflows/db-restore-verify.yml`): restores the newest nightly artifact into a scratch Postgres 18 and sanity-counts schema/rows; plus a local owner-run equivalent `scripts/verify-backup-restore.mjs`
 - Runbooks: `deploy-and-rollback.md` (incl. the exact Wait-for-CI owner step — live audit found `checkSuites: null` on both production services, so a red master could deploy), `restore-from-backup.md`, `db-down.md`, `redis-down.md`, `secrets-rotation.md` (incl. the dead revoked `ANTHROPIC_API_KEY` cleanup owner action); runbook index + `docs/operations.md` updated to match reality
 - Additive migration `20260902090000_devops_ops_health_spend_guard`: `AppSettings.cronLastTickAt`, `opsHealthSnapshot`, `aiDailySpendCapCents`
+
+## [2026-08-28] — Fix production preview CSS packaging + invalid metafield namespaces + unknown-price warn
+
+Commit `97e0622` (PR #45).
+
+### Fixed
+- **Every metafield write had always failed** — Shopify rejects dots in metafield namespaces, and every namespace this app wrote was dotted (`superapp.theme` etc.). Renamed to underscore forms (`superapp_theme`, `superapp_admin`, `superapp_functions`, `superapp_checkout`, `superapp_customer_account`, `superapp_flow`, `superapp_integration`) across writers and every reader in one pass; no data migration needed since no store could ever hold data under the dotted names. Guarded by a new charset test that also sweeps for new dotted literals. See `docs/debug.md` §24
+- Production storefront previews silently rendered without the two-pack stylesheet: `apps/web/Dockerfile` never copied `extensions/`, so `PreviewService.loadPackCss()` missed at boot and degraded to legacy CSS for the process lifetime. The image now ships `extensions/theme-app-extension/assets`, and the miss is error-level + written to `ErrorLog` (D8: no silent failures). See `docs/debug.md` §25
+
+### Added
+- `estimateCostCentsFromDbRates` WARNs once per model per process when usage is recorded for a model with no `AiModelPrice` row (which prices at 0 and silently masks real spend), pointing at `seed:ai-pricing`
+
+## [2026-08-28] — P2-A: prompt caching — stable-prefix split + Anthropic cache_control (flag-gated OFF)
+
+Commit `de7b41f` (PR #43).
+
+### Added
+- Create-module and hydrate prompt compilers now return `{ prompt, cacheableChars }` — a byte-stable, shop/request-agnostic stable prefix followed by the dynamic suffix (merchant text, optionCount task text, recipe JSON). Content parity with the pre-split prompts is pinned by a word-multiset test (`prompt-content-parity.test.ts`) against frozen pre-split copies
+- Anthropic client turns `cacheableChars` into real `cache_control` breakpoints (message prefix + system block when structured output is active) behind `AI_PROMPT_CACHING_ENABLED` (`env.server.ts`, **default off** — lands inert; flag-off request shape is byte-identical to pre-P2-A). `cacheableChars`/`cache_control` are Anthropic-only; OpenAI/Gemini/compatible legs see only the reordering
+- `GenerateResult`/`AiUsage.meta` gain `cacheReadTokens`/`cacheCreationTokens` from Anthropic's cache usage fields
+- `guardAnthropicSkillsConfig` logs an `[ai-skills]` warning when provider-enabled code execution disables structured-output tool-forcing (mutually exclusive), instead of degrading silently
+
+### Fixed
+- Structured-output forced-tool names are now index-invariant (dropped `_${idx}`/`_qa` suffixes) — the per-option names changed the `tools` block bytes and invalidated both cache breakpoints across every sibling fan-out call
+- `code_execution_20250825` → `code_execution_20260521` tool-type drift in the Anthropic client
+
+## [2026-08-28] — fix(evals): four validity bugs in the AI eval harness
+
+Commit `936e54e` (PR #42).
+
+### Fixed
+- `EVAL_PROVIDER_ID` was decorative (used only as a truthy switch — a "live" run could silently score the wrong client): it now pins the named `AiProvider` row by id or name via the production `ConfiguredLlmClient` path and **fails fast** when the row doesn't exist; `EVAL_PROVIDER_ID=env` explicitly selects the env client, and the runner's provider log line is honest in every mode
+- Silent cross-provider fallback inside a qualification gate: eval runs now pass `disableFallback` so a `claude-*` run can never silently score `gpt-*` output (skips the env OpenAI wrap, operator manual fallback, and cost-chain legs)
+- `ANTHROPIC_SKILLS` env leaked Skills/code-execution/beta headers into eval calls — eval runs now pass `ignoreEnvSkills`
+- 80-char error truncation hid actionable failures: a deduped "Distinct errors" section prints the first 400 chars of each distinct error once
+
+All fixes are gated to the eval entrypoint; production `getLlmClient()` defaults are unchanged, asserted by `eval-harness-validity.test.ts` (10 cases).
+
+## [2026-08-28] — fix(ai): raise generated-module quality bar
+
+Commit `e56f3ca` (PR #41). Diagnosis ran 4 real prompts through the live pipeline (real Anthropic calls, real `PreviewService` renders).
+
+### Fixed
+- `theme.section`/`proxy.widget` token budgets raised 3000→**7000** / 2500→**5500** — they carried the smallest budgets in the system despite the richest design-system prompt, reproducing total generation failure (all parallel options truncated at `stop_reason=max_tokens`)
+- `normalizeTokenBraces()` at all single-brace substitution call sites — a Handlebars-style `{{token}}` survived richness-QA but broke live-value substitution, leaving literal braces in shopper-facing copy
+
+### Added
+- Deterministic storefront-like preview chrome in `PreviewService` (legible baseline color, neutral page canvas, constrained measure) so inherit/currentColor tokens resolve against something realistic
+- Prompt guidance documents `config.countdown` for any kind (not just popups) and makes the advancedCustom-not-rendered-in-preview tradeoff explicit; new `richness.advancedCustom-primary` WARN when a recipe leans on `advancedCustom` for substantial content
+- Tightened (opt-in, off-by-default) judge rubric with concrete design/copy-quality criteria
+
+## [2026-08-28] — Internal admin audit: fix logs, live tail, job replay, hydration
+
+Commit `488c652` (PR #40).
+
+### Fixed
+- **"Logs are not opening":** the Activity/API Logs/Jobs/Error Logs/Webhooks detail routes nested under list pages with no `<Outlet/>`, so a detail navigation fetched data and changed the URL but rendered nothing. Renamed to Remix's trailing-underscore convention (`internal.X_.$id.tsx`) to de-nest; URLs unchanged
+- Live tail silently hung forever on a dropped SSE connection (`onerror` only reacted to `CLOSED`; transient drops stay `CONNECTING`): shared `useLiveTail`/`attachLiveTail` now shows a "reconnecting" banner and gives up loudly (close + toast + toggle off) after 5 consecutive failed retries
+- Job detail "Replay job" hard-crashed the page (posted to `/internal/jobs`, which has no action) — now goes through the audited `/internal/ops` `job_replay` intent like the list page
+- Route errors reported as `"[object Object]"` in the Error Log: `describeRouteError` renders thrown Responses as `<status> <statusText>: <data>` with JSON fallbacks
+- Job detail hydration errors on every load (`toLocaleString()` differs between Node and browser locales) — timestamps formatted once in the loader
+- Vite/Remix HMR dev-tooling errors filtered out of `/api/report-error`; ⌘K palette copy no longer overclaims full-text entity search (it navigates to pages / matches correlation IDs)
+
+### Added
+- `vite:preloadError` recovery: a tab open across a deploy boundary whose route-chunk fetch fails against pruned content-hashed chunks now reports the incident and reloads once (sessionStorage one-shot guard) instead of surfacing `ReferenceError`s from stale bundles
 
 ## [2026-08-27] — WS-C: Async generation engine
 
