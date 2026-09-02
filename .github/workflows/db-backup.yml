@@ -37,8 +37,10 @@ jobs:
     steps:
       - name: Check DATABASE_BACKUP_URL is configured
         id: check
+        env:
+          DATABASE_BACKUP_URL: ${{ secrets.DATABASE_BACKUP_URL }}
         run: |
-          if [ -z "${{ secrets.DATABASE_BACKUP_URL }}" ]; then
+          if [ -z "${DATABASE_BACKUP_URL:-}" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
@@ -113,6 +115,6 @@ jobs:
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --title "Nightly DB backup FAILED ($(date -u +%Y-%m-%d))" \
             --label ops-backup-failure \
-            --body "The db-backup workflow failed: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-
-Until this is fixed there is NO fresh restorable backup. Runbook: docs/runbooks/restore-from-backup.md (includes the known pg_dump-vs-server version-mismatch failure mode)."
+            --body "$(printf '%s\n\n%s' \
+              "The db-backup workflow failed: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              "Until this is fixed there is NO fresh restorable backup. Runbook: docs/runbooks/restore-from-backup.md (includes the known pg_dump-vs-server version-mismatch failure mode).")"

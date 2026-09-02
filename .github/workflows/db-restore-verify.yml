@@ -73,9 +73,11 @@ jobs:
               "DATABASE_BACKUP_URL was never configured. See docs/runbooks/restore-from-backup.md."
             exit 0
           fi
-          echo "found=true" >> "$GITHUB_OUTPUT"
-          echo "id=$(echo "$ARTIFACT" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')" >> "$GITHUB_OUTPUT"
-          echo "name=$(echo "$ARTIFACT" | python3 -c 'import json,sys;print(json.load(sys.stdin)["name"])')" >> "$GITHUB_OUTPUT"
+          {
+            echo "found=true"
+            echo "id=$(echo "$ARTIFACT" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')"
+            echo "name=$(echo "$ARTIFACT" | python3 -c 'import json,sys;print(json.load(sys.stdin)["name"])')"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Download + restore into scratch Postgres
         if: steps.find.outputs.found == 'true'
@@ -87,7 +89,8 @@ jobs:
           echo "Restoring artifact: ${{ steps.find.outputs.name }}"
           gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${{ steps.find.outputs.id }}/zip" > backup.zip
           unzip -o backup.zip
-          DUMP=$(ls superapp-postgres-*.sql.gz | head -n1)
+          set -- superapp-postgres-*.sql.gz
+          DUMP=$1
           # ON_ERROR_STOP: a partial restore must fail the job, not limp to green.
           gunzip -c "$DUMP" | psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d superapp_restore -q
 
@@ -135,6 +138,6 @@ jobs:
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --title "Backup restore verification FAILED ($(date -u +%Y-%m-%d))" \
             --label ops-restore-verify-failure \
-            --body "The weekly restore test could not restore the latest nightly backup: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-
-The backups we have may NOT be restorable. Runbook: docs/runbooks/restore-from-backup.md."
+            --body "$(printf '%s\n\n%s' \
+              "The weekly restore test could not restore the latest nightly backup: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              "The backups we have may NOT be restorable. Runbook: docs/runbooks/restore-from-backup.md.")"

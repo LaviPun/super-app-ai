@@ -136,6 +136,6 @@ jobs:
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --title "Post-deploy smoke FAILED for ${EXPECTED_SHA:-manual run}" \
             --label ops-smoke-failure \
-            --body "Post-deploy verification failed after a master deploy: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-
-Production may be unhealthy. Runbook: docs/runbooks/deploy-and-rollback.md (rollback = Railway redeploy of the previous build)."
+            --body "$(printf '%s\n\n%s' \
+              "Post-deploy verification failed after a master deploy: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              "Production may be unhealthy. Runbook: docs/runbooks/deploy-and-rollback.md (rollback = Railway redeploy of the previous build).")"

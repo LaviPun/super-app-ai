@@ -342,7 +342,7 @@ jobs:
 
       - name: Wait for app to boot
         run: |
-          for i in {1..60}; do
+          for _ in {1..60}; do
             if curl -fsS http://127.0.0.1:4000/internal/login >/dev/null; then
               echo "App is up"
               exit 0
@@ -517,6 +517,7 @@ jobs:
           # pipefail: without it, `| tee` swallowed the runner's exit code and
           # every nightly failed later at an empty report path (2026-08 audit).
           pnpm evals:report --out scripts/eval-out 2>&1 | tee scripts/eval-out/run.log
+          # shellcheck disable=SC2012 # filenames are self-generated (no exotic chars); ls -t is the simple newest-first pick
           REPORT=$(ls -t scripts/eval-out/eval-report-*.json 2>/dev/null | head -n1 || true)
           if [ -z "$REPORT" ]; then
             echo "::error::pnpm evals:report exited 0 but wrote no scripts/eval-out/eval-report-*.json"
